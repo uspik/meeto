@@ -1,0 +1,12 @@
+FROM node:22-alpine AS build
+WORKDIR /app
+ARG VITE_API_BASE=/api/v1
+ENV VITE_API_BASE=$VITE_API_BASE
+COPY package.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf

@@ -1,0 +1,41 @@
+# ============ Секреты ============
+# Никогда не коммитим: здесь токен бота, пароль базы и JWT-секрет
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ============ Сертификаты и данные ============
+app/certbot/conf/
+app/certbot/www/
+app/nginx/certs/
+app/backups/
+*.sql.gz
+
+# ============ Python ============
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.db
+*.sqlite3
+
+# ============ Node ============
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+npm-debug.log*
+
+# ============ Редакторы и ОС ============
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
