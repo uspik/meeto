@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { DatePicker, NumberPicker, Plate, TimePicker } from "../components/Pickers";
 import { MN, WD, dstr, hm } from "../lib/date";
 import { api } from "../lib/api";
 import { haptic } from "../lib/tg";
@@ -29,7 +30,9 @@ interface Props {
 
 export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
   const [step, setStep] = useState(0);
-  const [dir, setDir] = useState(1);
+  // "" — покой, from-r/from-l — стартовое смещение перед въездом
+  const [slide, setSlide] = useState("");
+  const [picker, setPicker] = useState<null | "date" | "time" | "qtime" | "cap" | "quorum">(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [groupOpen, setGroupOpen] = useState(false);
@@ -75,9 +78,17 @@ export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
     if (delta > 0 && step === STEPS.length - 1) { void submit(); return; }
     const next = Math.max(0, Math.min(STEPS.length - 1, step + delta));
     if (next === step) return;
-    setDir(delta);
+    setSlide(delta > 0 ? "from-r" : "from-l");
     setStep(next);
   }
+
+  // два кадра: первый — чтобы браузер зафиксировал стартовое положение,
+  // второй — чтобы переход действительно проиграл, а не схлопнулся
+  useEffect(() => {
+    if (!slide) return;
+    const raf = requestAnimationFrame(() => requestAnimationFrame(() => setSlide("")));
+    return () => cancelAnimationFrame(raf);
+  }, [slide, step]);
 
   async function submit() {
     haptic();
@@ -141,7 +152,7 @@ export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
             </div>
           </div>
 
-          <div key={step} className={`wz-step on ${dir > 0 ? "" : ""}`}>
+          <div key={step} className={`wz-step ${slide} ${slide ? "" : "on"}`}>
             {step === 0 && (
               <>
                 <div className="fld">
@@ -199,14 +210,15 @@ export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
                 <div className="two">
                   <div className="fld">
                     <div className="lbl">Дата</div>
-                    <input type="date" className="inp" value={d.date}
-                      onChange={(e) => patch({ date: e.target.value || d.date })} />
+                    <Plate
+                      text={`${Number(d.date.slice(8))} ${MN[Number(d.date.slice(5, 7)) - 1]} ${d.date.slice(0, 4)}`}
+                      onOpen={() => setPicker("date")}
+                    />
                   </div>
                   {!allDay && (
                     <div className="fld">
                       <div className="lbl">Начало</div>
-                      <input type="time" className="inp" value={d.time}
-                        onChange={(e) => patch({ time: e.target.value || d.time })} />
+                      <Plate text={d.time} onOpen={() => setPicker("time")} />
                     </div>
                   )}
                 </div>
@@ -299,8 +311,7 @@ export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
                 {d.capOn && (
                   <div className="fld">
                     <div className="lbl">Всего мест</div>
-                    <input type="number" min={1} className="inp num" value={d.capacity}
-                      onChange={(e) => patch({ capacity: Number(e.target.value) || 1 })} />
+                    <Plate text={String(d.capacity)} onOpen={() => setPicker("cap")} />
                   </div>
                 )}
                 <div className="tgl">
@@ -317,13 +328,11 @@ export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
                   <div className="two">
                     <div className="fld">
                       <div className="lbl">Нужно человек</div>
-                      <input type="number" min={1} className="inp num" value={d.quorum}
-                        onChange={(e) => patch({ quorum: Number(e.target.value) || 1 })} />
+                      <Plate text={String(d.quorum)} onOpen={() => setPicker("quorum")} />
                     </div>
                     <div className="fld">
                       <div className="lbl">Решение в</div>
-                      <input type="time" className="inp" value={d.qtime}
-                        onChange={(e) => patch({ qtime: e.target.value || d.qtime })} />
+                      <Plate text={d.qtime} onOpen={() => setPicker("qtime")} />
                     </div>
                   </div>
                 )}
@@ -335,6 +344,17 @@ export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
             )}
           </div>
         </div>
+
+        <DatePicker open={picker === "date"} value={d.date}
+          onPick={(v) => patch({ date: v })} onClose={() => setPicker(null)} />
+        <TimePicker open={picker === "time"} value={d.time}
+          onPick={(v) => patch({ time: v })} onClose={() => setPicker(null)} />
+        <TimePicker open={picker === "qtime"} value={d.qtime}
+          onPick={(v) => patch({ qtime: v })} onClose={() => setPicker(null)} />
+        <NumberPicker open={picker === "cap"} value={d.capacity} min={1} max={200}
+          title="Всего мест" onPick={(v) => patch({ capacity: v })} onClose={() => setPicker(null)} />
+        <NumberPicker open={picker === "quorum"} value={d.quorum} min={1} max={200}
+          title="Нужно человек" onPick={(v) => patch({ quorum: v })} onClose={() => setPicker(null)} />
 
         <div className="wz-ft">
           {step > 0 && <button className="back" onClick={() => go(-1)}>Назад</button>}

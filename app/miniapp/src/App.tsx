@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, login } from "./lib/api";
 import { MN, MNn, WD, addDays, sameDay, startOfDay } from "./lib/date";
 import { initTelegram, startParam } from "./lib/tg";
@@ -29,6 +29,12 @@ export default function App() {
   const [events, setEvents] = useState<Event[]>([]);
   const [fatal, setFatal] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Двухслойный переход между вкладками: уходящий экран остаётся снимком
+  // разметки на 340 мс и растворяется, пока новый въезжает навстречу.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [ghost, setGhost] = useState<{ html: string; out: string } | null>(null);
+  const [enter, setEnter] = useState("in");
 
   const [openEvent, setOpenEvent] = useState<Event | null>(null);
   const [wizard, setWizard] = useState(false);
@@ -116,10 +122,31 @@ export default function App() {
 
   function switchView(v: View) {
     if (v === view) return;
+    const order = Object.keys(VIEWS) as View[];
+    const dir = order.indexOf(v) > order.indexOf(view) ? 1 : -1;
+
+    const snapshot = bodyRef.current?.querySelector(".view")?.innerHTML ?? "";
+    if (snapshot) setGhost({ html: snapshot, out: "" });
+    setEnter(dir > 0 ? "d-right" : "d-left");
+
     if (v === "day") setCursor(selected);
     if (v === "month") setSelected(cursor);
     setView(v);
   }
+
+  useEffect(() => {
+    if (enter === "in") return;
+    const dirOut = enter === "d-right" ? "out-left" : "out-right";
+    // два кадра: первый фиксирует стартовое положение, второй запускает переход
+    const raf = requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        setEnter("in");
+        setGhost((g) => (g ? { ...g, out: dirOut } : null));
+      }),
+    );
+    const timer = window.setTimeout(() => setGhost(null), 380);
+    return () => { cancelAnimationFrame(raf); window.clearTimeout(timer); };
+  }, [enter]);
 
   function upsert(updated: Event) {
     setEvents((prev) => {
@@ -174,8 +201,15 @@ export default function App() {
         </div>
       </div>
 
-      <div id="body">
-        <div className="view in">
+      <div id="body" ref={bodyRef}>
+        {ghost && (
+          <div
+            className={`view in ghost ${ghost.out}`}
+            aria-hidden
+            dangerouslySetInnerHTML={{ __html: ghost.html }}
+          />
+        )}
+        <div className={`view ${enter}`}>
           {view === "month" && (
             <MonthView
               cursor={cursor} selected={selected} events={visible} today={today}
