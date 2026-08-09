@@ -1,4 +1,6 @@
 import { useState } from "react";
+
+import { useSheet } from "../lib/useSheet";
 import { Icon } from "../components/Icon";
 import { StatusChip } from "../components/StatusChip";
 import { MN, hm } from "../lib/date";
@@ -14,6 +16,7 @@ const ANSWERS: [RsvpStatus, string][] = [
 interface Props { event: Event; onClose(): void; onChanged(e: Event): void }
 
 export function EventSheet({ event, onClose, onChanged }: Props) {
+  const { close, cls } = useSheet(onClose);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const start = new Date(event.starts_at);
@@ -38,8 +41,8 @@ export function EventSheet({ event, onClose, onChanged }: Props) {
 
   return (
     <>
-      <div className="scrim on" onClick={onClose} />
-      <div className="sheet on">
+      <div className={`scrim on ${cls}`} onClick={close} />
+      <div className={`sheet on ${cls}`}>
         <div className="grab" />
         <div className="sh-hd">
           <Icon event={event} size="xl" />

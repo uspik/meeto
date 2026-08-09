@@ -120,16 +120,18 @@ export default function App() {
     if (view === "month") setSelected(next);
   }
 
-  function switchView(v: View) {
-    if (v === view) return;
+  function switchView(v: View, at?: Date) {
+    if (v === view && !at) return;
     const order = Object.keys(VIEWS) as View[];
-    const dir: 1 | -1 = order.indexOf(v) > order.indexOf(view) ? 1 : -1;
+    const idx = order.indexOf(v);
+    const dir: 1 | -1 = idx > order.indexOf(view) ? 1 : -1;
 
     const html = bodyRef.current?.querySelector(".view:not(.ghost)")?.innerHTML ?? "";
     setAnim({ dir, html, id: Date.now() });
 
-    if (v === "day") setCursor(selected);
-    if (v === "month") setSelected(cursor);
+    if (at) { setSelected(at); setCursor(at); }
+    else if (v === "day") setCursor(selected);
+    else if (v === "month") setSelected(cursor);
     setView(v);
   }
 
@@ -206,7 +208,7 @@ export default function App() {
             <MonthView
               cursor={cursor} selected={selected} events={visible} today={today}
               onSelect={setSelected}
-              onOpenDay={() => { setCursor(selected); setView("day"); }}
+              onOpenDay={() => switchView("day")}
               onOpenEvent={setOpenEvent}
               onCreate={() => setWizard(true)}
             />
@@ -215,7 +217,7 @@ export default function App() {
             <DayView
               cursor={cursor} events={visible} today={today}
               onOpenEvent={setOpenEvent}
-              onPickDay={() => { setSelected(cursor); setView("month"); }}
+              onPickDay={() => switchView("month")}
               onCreate={() => setWizard(true)}
             />
           )}
@@ -240,8 +242,11 @@ export default function App() {
         <Wizard
           groups={groups} day={view === "day" ? cursor : selected} existing={events}
           onClose={() => setWizard(false)}
-          onCreated={(e) => { upsert(e); setWizard(false); setCursor(startOfDay(new Date(e.starts_at)));
-            setSelected(startOfDay(new Date(e.starts_at))); setView("day"); }}
+          onCreated={(e) => {
+            upsert(e);
+            setWizard(false);
+            switchView("day", startOfDay(new Date(e.starts_at)));
+          }}
         />
       )}
 

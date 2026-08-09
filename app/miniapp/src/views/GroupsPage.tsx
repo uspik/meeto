@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+
+import { useSheet } from "../lib/useSheet";
 import { api } from "../lib/api";
 import type { Group } from "../lib/types";
 
@@ -10,6 +12,7 @@ const ROLE: Record<string, string> = {
 interface Props { groups: Group[]; onClose(): void; onChanged(): void }
 
 export function GroupsPage({ groups, onClose, onChanged }: Props) {
+  const { close, cls } = useSheet(onClose);
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [invite, setInvite] = useState<Record<string, string>>({});
@@ -42,15 +45,15 @@ export function GroupsPage({ groups, onClose, onChanged }: Props) {
 
   return (
     <>
-      <div className="scrim on" onClick={onClose} />
-      <div className="sheet on">
+      <div className={`scrim on ${cls}`} onClick={close} />
+      <div className={`sheet on ${cls}`}>
         <div className="grab" />
         <div className="sh-hd">
           <div style={{ flex: 1 }}>
             <h2>Группы</h2>
             <p>{groups.length ? `${groups.length} — вы участник` : "пока пусто"}</p>
           </div>
-          <button className="ib" onClick={onClose}>✕</button>
+          <button className="ib" onClick={close}>✕</button>
         </div>
 
         <div className="sh-sec">

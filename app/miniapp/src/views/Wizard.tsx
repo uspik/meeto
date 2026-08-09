@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { DatePicker, NumberPicker, Plate, TimePicker } from "../components/Pickers";
+import { useSheet } from "../lib/useSheet";
 import { MN, WD, dstr, hm } from "../lib/date";
 import { api } from "../lib/api";
 import { haptic } from "../lib/tg";
@@ -29,6 +30,7 @@ interface Props {
 }
 
 export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
+  const { close, cls } = useSheet(onClose);
   const [step, setStep] = useState(0);
   // направление въезда шага; сбрасывается после проигрыша анимации
   const [slide, setSlide] = useState<"" | "enter-r" | "enter-l">("");
@@ -123,13 +125,13 @@ export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
 
   return (
     <>
-      <div className="scrim on" onClick={onClose} />
-      <div className="wz on">
+      <div className={`scrim on ${cls}`} onClick={close} />
+      <div className={`wz on ${cls}`}>
         <div className="wz-hd">
           <div className="wz-top">
             <h3>{STEPS[step]}</h3>
             <small>шаг {step + 1} из {STEPS.length}</small>
-            <button className="ib" onClick={onClose}>✕</button>
+            <button className="ib" onClick={close}>✕</button>
           </div>
           <div className="steps">
             {STEPS.map((s, i) => <i key={s} className={i <= step ? "on" : ""} />)}

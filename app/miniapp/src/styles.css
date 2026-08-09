@@ -546,3 +546,22 @@ html.theming,body.theming,body.theming *{
 @keyframes stepInL{from{opacity:0;transform:translateX(-26px)}to{opacity:1;transform:none}}
 .wz-step.enter-r{animation:stepInR .3s cubic-bezier(.32,.72,0,1) both}
 .wz-step.enter-l{animation:stepInL .3s cubic-bezier(.32,.72,0,1) both}
+
+
+/* ============ Шторки: появление и уход ============
+   Компоненты монтируются сразу с классом .on, поэтому transition тут
+   бесполезен — переходить не от чего. Работают только keyframes. */
+@keyframes sheetIn{from{transform:translate(-50%,110%)}to{transform:translate(-50%,0)}}
+@keyframes sheetOut{from{transform:translate(-50%,0)}to{transform:translate(-50%,110%)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes fadeOut{from{opacity:1}to{opacity:0}}
+
+.sheet.on,.wz.on{animation:sheetIn .34s cubic-bezier(.32,.72,0,1) both}
+.sheet.on.closing,.wz.on.closing{animation:sheetOut .26s cubic-bezier(.32,.72,0,1) both}
+.scrim.on{animation:fadeIn .24s ease both}
+.scrim.on.closing{animation:fadeOut .24s ease both}
+
+/* поповер пикеров смонтирован заранее, ему хватает transition,
+   но выравниваем тайминг с остальными шторками */
+.pop.on .pop-in{animation:sheetInPlain .3s cubic-bezier(.32,.72,0,1) both}
+@keyframes sheetInPlain{from{transform:translateY(26px)}to{transform:none}}
