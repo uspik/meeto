@@ -82,22 +82,25 @@ interface WheelProps { count: number; index: number; label(i: number): string; o
 
 function Wheel({ count, index, label, onIndex }: WheelProps) {
   const ref = useRef<HTMLDivElement>(null);
-  const settling = useRef(false);
+  const start = useRef(index).current;
+  const [shown, setShown] = useState(index);
 
-  // прокручиваем к текущему значению при открытии, без анимации
+  // Позицию задаём ровно один раз — при монтировании. Барабан пересоздаётся
+  // при каждом открытии пикера, так что этого достаточно. Если писать
+  // scrollTop на каждое изменение значения, код начинает спорить с пальцем:
+  // прокрутка дёргается и перескакивает через позиции.
   useLayoutEffect(() => {
     const el = ref.current;
-    if (el && !settling.current) el.scrollTop = index * ROW;
-  }, [index]);
+    if (el) el.scrollTop = start * ROW;
+  }, [start]);
 
   function onScroll() {
     const el = ref.current;
     if (!el) return;
     const i = Math.max(0, Math.min(count - 1, Math.round(el.scrollTop / ROW)));
-    if (i !== index) {
-      settling.current = true;
+    if (i !== shown) {
+      setShown(i);
       onIndex(i);
-      window.setTimeout(() => { settling.current = false; }, 120);
     }
   }
 
@@ -105,7 +108,7 @@ function Wheel({ count, index, label, onIndex }: WheelProps) {
     <div className="wheel" ref={ref} onScroll={onScroll}>
       <div className="pad" />
       {Array.from({ length: count }, (_, i) => (
-        <b key={i} className={i === index ? "on" : ""}>{label(i)}</b>
+        <b key={i} className={i === shown ? "on" : ""}>{label(i)}</b>
       ))}
       <div className="pad" />
     </div>

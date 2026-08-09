@@ -33,8 +33,8 @@ export default function App() {
   // Двухслойный переход между вкладками: уходящий экран остаётся снимком
   // разметки на 340 мс и растворяется, пока новый въезжает навстречу.
   const bodyRef = useRef<HTMLDivElement>(null);
-  const [ghost, setGhost] = useState<{ html: string; out: string } | null>(null);
-  const [enter, setEnter] = useState("in");
+  // dir: 1 — вправо по порядку вкладок, -1 — влево. ghost живёт 340 мс.
+  const [anim, setAnim] = useState<{ dir: 1 | -1; html: string; id: number } | null>(null);
 
   const [openEvent, setOpenEvent] = useState<Event | null>(null);
   const [wizard, setWizard] = useState(false);
@@ -123,11 +123,10 @@ export default function App() {
   function switchView(v: View) {
     if (v === view) return;
     const order = Object.keys(VIEWS) as View[];
-    const dir = order.indexOf(v) > order.indexOf(view) ? 1 : -1;
+    const dir: 1 | -1 = order.indexOf(v) > order.indexOf(view) ? 1 : -1;
 
-    const snapshot = bodyRef.current?.querySelector(".view")?.innerHTML ?? "";
-    if (snapshot) setGhost({ html: snapshot, out: "" });
-    setEnter(dir > 0 ? "d-right" : "d-left");
+    const html = bodyRef.current?.querySelector(".view:not(.ghost)")?.innerHTML ?? "";
+    setAnim({ dir, html, id: Date.now() });
 
     if (v === "day") setCursor(selected);
     if (v === "month") setSelected(cursor);
@@ -135,18 +134,10 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (enter === "in") return;
-    const dirOut = enter === "d-right" ? "out-left" : "out-right";
-    // два кадра: первый фиксирует стартовое положение, второй запускает переход
-    const raf = requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        setEnter("in");
-        setGhost((g) => (g ? { ...g, out: dirOut } : null));
-      }),
-    );
-    const timer = window.setTimeout(() => setGhost(null), 380);
-    return () => { cancelAnimationFrame(raf); window.clearTimeout(timer); };
-  }, [enter]);
+    if (!anim) return;
+    const t = window.setTimeout(() => setAnim(null), 340);
+    return () => window.clearTimeout(t);
+  }, [anim]);
 
   function upsert(updated: Event) {
     setEvents((prev) => {
@@ -202,14 +193,15 @@ export default function App() {
       </div>
 
       <div id="body" ref={bodyRef}>
-        {ghost && (
+        {anim && anim.html && (
           <div
-            className={`view in ghost ${ghost.out}`}
+            key={anim.id}
+            className={`view in ghost leave-${anim.dir > 0 ? "l" : "r"}`}
             aria-hidden
-            dangerouslySetInnerHTML={{ __html: ghost.html }}
+            dangerouslySetInnerHTML={{ __html: anim.html }}
           />
         )}
-        <div className={`view ${enter}`}>
+        <div key={view} className={`view in ${anim ? `enter-${anim.dir > 0 ? "r" : "l"}` : ""}`}>
           {view === "month" && (
             <MonthView
               cursor={cursor} selected={selected} events={visible} today={today}

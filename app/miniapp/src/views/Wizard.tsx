@@ -30,8 +30,8 @@ interface Props {
 
 export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
   const [step, setStep] = useState(0);
-  // "" — покой, from-r/from-l — стартовое смещение перед въездом
-  const [slide, setSlide] = useState("");
+  // направление въезда шага; сбрасывается после проигрыша анимации
+  const [slide, setSlide] = useState<"" | "enter-r" | "enter-l">("");
   const [picker, setPicker] = useState<null | "date" | "time" | "qtime" | "cap" | "quorum">(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,16 +78,14 @@ export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
     if (delta > 0 && step === STEPS.length - 1) { void submit(); return; }
     const next = Math.max(0, Math.min(STEPS.length - 1, step + delta));
     if (next === step) return;
-    setSlide(delta > 0 ? "from-r" : "from-l");
+    setSlide(delta > 0 ? "enter-r" : "enter-l");
     setStep(next);
   }
 
-  // два кадра: первый — чтобы браузер зафиксировал стартовое положение,
-  // второй — чтобы переход действительно проиграл, а не схлопнулся
   useEffect(() => {
     if (!slide) return;
-    const raf = requestAnimationFrame(() => requestAnimationFrame(() => setSlide("")));
-    return () => cancelAnimationFrame(raf);
+    const t = window.setTimeout(() => setSlide(""), 320);
+    return () => window.clearTimeout(t);
   }, [slide, step]);
 
   async function submit() {
@@ -152,7 +150,7 @@ export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
             </div>
           </div>
 
-          <div key={step} className={`wz-step ${slide} ${slide ? "" : "on"}`}>
+          <div key={step} className={`wz-step on ${slide}`}>
             {step === 0 && (
               <>
                 <div className="fld">

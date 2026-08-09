@@ -316,7 +316,8 @@ body{background:var(--bg);color:var(--text);
 .steps{display:flex;gap:4px;margin-top:11px}
 .steps i{flex:1;height:3px;border-radius:2px;background:var(--bg2);transition:background .25s}
 .steps i.on{background:var(--link)}
-.wz-bd{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 18px 20px}
+.wz-bd{flex:1;overflow-y:scroll;overflow-x:hidden;scrollbar-gutter:stable;
+  padding:16px 18px 20px}
 .wz-ft{flex:0 0 auto;display:flex;gap:9px;padding:11px 18px 18px;border-top:1px solid var(--sep)}
 .wz-ft button{height:46px;border-radius:14px;font-size:14.5px;font-weight:650;cursor:pointer;
   border:1.5px solid var(--sep);background:transparent;color:var(--text);transition:.15s}
@@ -492,7 +493,8 @@ body.dark{--pick-filter:invert(1)}
 .cal-wd{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:4px}
 .cal-wd span{text-align:center;font-size:10.5px;color:var(--hint);font-weight:650}
 .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
-.cal button{height:40px;border:none;background:transparent;color:var(--text);border-radius:50%;
+.cal button{width:40px;height:40px;margin:0 auto;border:none;background:transparent;
+  color:var(--text);border-radius:50%;
   font-size:14px;font-weight:560;cursor:pointer;
   transition:background .2s,color .2s,transform .14s}
 .cal button:active{transform:scale(.88)}
@@ -525,3 +527,22 @@ body.dark{--pick-filter:invert(1)}
 html.theming,body.theming,body.theming *{
   transition:background-color .5s ease,color .5s ease,border-color .5s ease,
   box-shadow .5s ease,fill .5s ease!important}
+
+
+/* ============ Анимации переходов (React) ============
+   Здесь именно keyframes, а не transition: узлы пересоздаются по key,
+   и анимация гарантированно проигрывается при монтировании. Переключение
+   классов на живом узле в React слишком легко схлопывается в один кадр. */
+@keyframes viewInR{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}
+@keyframes viewInL{from{opacity:0;transform:translateX(-24px)}to{opacity:1;transform:none}}
+@keyframes viewOutL{from{opacity:1;transform:none}to{opacity:0;transform:translateX(-24px)}}
+@keyframes viewOutR{from{opacity:1;transform:none}to{opacity:0;transform:translateX(24px)}}
+.view.enter-r{animation:viewInR .32s cubic-bezier(.32,.72,0,1) both}
+.view.enter-l{animation:viewInL .32s cubic-bezier(.32,.72,0,1) both}
+.view.ghost.leave-l{animation:viewOutL .32s cubic-bezier(.32,.72,0,1) both}
+.view.ghost.leave-r{animation:viewOutR .32s cubic-bezier(.32,.72,0,1) both}
+
+@keyframes stepInR{from{opacity:0;transform:translateX(26px)}to{opacity:1;transform:none}}
+@keyframes stepInL{from{opacity:0;transform:translateX(-26px)}to{opacity:1;transform:none}}
+.wz-step.enter-r{animation:stepInR .3s cubic-bezier(.32,.72,0,1) both}
+.wz-step.enter-l{animation:stepInL .3s cubic-bezier(.32,.72,0,1) both}
