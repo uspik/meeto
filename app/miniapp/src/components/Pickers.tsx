@@ -121,11 +121,18 @@ function Wheel({ count, index, label, onIndex }: WheelProps) {
     return clamped;
   };
 
+  // Разгон растёт геометрически, а не линейно: 1, 1, 2, 4, 7, 13 и дальше до
+  // потолка. Первые две засечки всегда по одной позиции — точность правки
+  // сохраняется. Потолок привязан к длине списка, иначе на часах (24 позиции)
+  // одна засечка перепрыгивала бы почти весь барабан.
+  const cap = Math.max(4, Math.round(count / 4));
+  const stepFor = (streak: number) =>
+    streak < 2 ? 1 : Math.min(cap, Math.round(1.9 ** (streak - 1)));
+
   // Колесо мыши: одна засечка прокручивает около 100 px, то есть больше двух
   // позиций по 44 px — барабан стабильно промахивался на 2. Перехватываем
-  // событие и двигаем сами. Первые засечки идут строго по одной, дальше при
-  // быстром вращении шаг растёт: иначе от 16:00 до 16:50 крутить полсотни раз.
-  // Пауза или смена направления сбрасывают разгон — правим значение точно.
+  // событие и двигаем сами. Пауза или смена направления сбрасывают разгон —
+  // значит, значение всегда можно поправить по одному шагу.
   // К касаниям это не относится: там остаётся родная инерция.
   useEffect(() => {
     const el = ref.current;
@@ -144,20 +151,19 @@ function Wheel({ count, index, label, onIndex }: WheelProps) {
         const now = performance.now();
         const gap = now - last;
         if (gap < 55) return;                       // дребезг одной засечки
-        const rolling = gap < 260 && sign === dir;
+        const rolling = gap < 280 && sign === dir;
         streak = rolling ? streak + 1 : 0;
         if (!rolling) target.current = cur.current; // догоняем реальную позицию
         dir = sign;
         last = now;
-        const step = streak < 3 ? 1 : Math.min(12, streak - 1);
-        goTo(target.current + sign * step, step <= 2);
+        goTo(target.current + sign * stepFor(streak), streak < 2);
       } else {
         // тачпад: шаг пропорционален пройденному расстоянию, разгон встроен
         acc += e.deltaY;
-        const steps = Math.trunc(acc / (ROW * 0.8));
+        const steps = Math.trunc(acc / (ROW * 0.5));
         if (steps) {
-          acc -= steps * ROW * 0.8;
-          if (performance.now() - last > 260) target.current = cur.current;
+          acc -= steps * ROW * 0.5;
+          if (performance.now() - last > 280) target.current = cur.current;
           last = performance.now();
           goTo(target.current + steps, Math.abs(steps) <= 2);
         }
@@ -166,7 +172,7 @@ function Wheel({ count, index, label, onIndex }: WheelProps) {
 
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [count]);
+  }, [count, cap]);
 
   function onScroll() {
     const el = ref.current;
