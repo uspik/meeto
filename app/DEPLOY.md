@@ -599,16 +599,79 @@ sudo certbot renew --dry-run
 Дальше возвращайтесь к шагу 10 основной инструкции — проверке и настройке
 BotFather. Скрипт `init-cert.sh` в этом режиме не нужен.
 
-### Если другой веб-сервер — не nginx
+### Если другой веб-сервер — не системный nginx
 
 * **Apache**: аналогично, `ProxyPass /api/ http://127.0.0.1:8000/` и
   `ProxyPass / http://127.0.0.1:8080/`, сертификат — `certbot --apache`.
-* **Caddy**: в `Caddyfile` достаточно блока
-  `ваш-домен { reverse_proxy /api/* 127.0.0.1:8000
-  reverse_proxy 127.0.0.1:8080 }` — TLS Caddy получит сам.
-* **Порт держит чужой контейнер** (`docker-proxy` в выводе `ss`): в том стеке
-  есть свой nginx или traefik — добавляйте маршрут туда, а Meeto оставляйте
-  на localhost, как в шаге 2.
+* **Порты держит контейнер** (в выводе `ss` виден `docker-proxy`): смотрите
+  Приложение Б — Meeto подключается к сети прокси, а не публикует порты.
+
+---
+
+## Приложение Б. Если 80/443 держит контейнер Caddy
+
+Caddy получает и продлевает сертификаты сам, поэтому `init-cert.sh` и наш
+`certbot` не нужны. Meeto подключается к docker-сети Caddy и наружу не смотрит
+вообще — это безопаснее, чем публиковать порты на localhost.
+
+### 1. Узнать сеть и расположение Caddyfile
+
+```bash
+docker inspect caddy --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+docker inspect caddy --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'
+```
+
+Первая команда выведет имя сети (например `remnawave-network`), вторая —
+где на хосте лежит `Caddyfile`.
+
+### 2. Включить режим и поднять Meeto
+
+```bash
+cd ~/meeto/app
+cat >> .env <<'CONF'
+COMPOSE_FILE=docker-compose.yml:docker-compose.caddy.yml
+PROXY_NETWORK=имя-сети-из-первой-команды
+CONF
+
+docker compose up -d --build
+docker compose ps
+```
+
+Проверка, что Caddy видит наши контейнеры по именам:
+
+```bash
+docker exec caddy wget -qO- http://meeto-api:8000/api/v1/health
+# {"status":"ok"}
+```
+
+Если команда не отвечает — контейнеры в разных сетях, перепроверьте
+`PROXY_NETWORK`.
+
+### 3. Добавить сайт в Caddyfile
+
+Откройте `Caddyfile` по пути из первой команды и допишите в конец блок из
+[`nginx/Caddyfile.snippet`](nginx/Caddyfile.snippet), заменив домен.
+Отступы в Caddyfile — табуляции.
+
+Проверьте и примените без перезапуска контейнера:
+
+```bash
+docker exec caddy caddy validate --config /etc/caddy/Caddyfile
+docker exec caddy caddy reload --config /etc/caddy/Caddyfile
+```
+
+`validate` перед `reload` обязателен: ошибка в конфиге положит **все** сайты
+на этом Caddy, а не только Meeto.
+
+### 4. Проверка
+
+```bash
+curl https://ваш-домен/api/v1/health     # {"status":"ok"}
+docker logs caddy --tail 20 | grep -i "certificate obtained"
+```
+
+Сертификат выдаётся за 10–30 секунд после первого обращения к домену.
+Дальше возвращайтесь к шагу 11 — настройке BotFather.
 
 ---
 

@@ -1,0 +1,36 @@
+# Оверлей для сервера, где порты 80/443 держит контейнер Caddy другого проекта.
+#
+# Что делает:
+#   * не поднимает наши nginx и certbot — сертификатами занимается Caddy;
+#   * не публикует порты наружу вообще: Caddy ходит к нам по внутренней
+#     docker-сети, снаружи api и miniapp недоступны;
+#   * даёт контейнерам предсказуемые имена, чтобы их можно было указать
+#     в Caddyfile.
+#
+# Как включить — в .env:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.caddy.yml
+#   PROXY_NETWORK=имя_сети_контейнера_caddy
+#
+# Имя сети смотреть так:
+#   docker inspect caddy --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+
+services:
+  api:
+    container_name: meeto-api
+    networks: [default, edge]
+
+  miniapp:
+    container_name: meeto-miniapp
+    networks: [default, edge]
+
+  # profiles с неактивным именем = сервис не стартует
+  nginx:
+    profiles: ["never"]
+
+  certbot:
+    profiles: ["never"]
+
+networks:
+  edge:
+    external: true
+    name: ${PROXY_NETWORK}
