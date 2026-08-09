@@ -112,6 +112,43 @@ function Wheel({ count, index, label, onIndex }: WheelProps) {
     cur.current = i;
   }
 
+  const goTo = (i: number) =>
+    ref.current?.scrollTo({
+      top: Math.max(0, Math.min(count - 1, i)) * ROW,
+      behavior: "smooth",
+    });
+
+  // Колесо мыши: одна засечка прокручивает около 100 px, то есть больше двух
+  // позиций по 44 px — барабан стабильно промахивался на 2. Перехватываем
+  // событие и двигаем ровно на шаг. Тачпад шлёт много мелких дельт, поэтому
+  // их копим. К касаниям это не относится: там остаётся родная инерция.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let acc = 0;
+    let last = 0;
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const notch = e.deltaMode !== 0 || Math.abs(e.deltaY) >= 30;
+      if (notch) {
+        const now = performance.now();
+        if (now - last < 90) return;
+        last = now;
+        goTo(cur.current + Math.sign(e.deltaY));
+      } else {
+        acc += e.deltaY;
+        if (Math.abs(acc) >= ROW * 0.6) {
+          goTo(cur.current + Math.sign(acc));
+          acc = 0;
+        }
+      }
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [count]);
+
   function onScroll() {
     const el = ref.current;
     if (!el) return;
@@ -125,7 +162,10 @@ function Wheel({ count, index, label, onIndex }: WheelProps) {
     <div className="wheel" ref={ref} onScroll={onScroll}>
       <div className="pad" />
       {Array.from({ length: count }, (_, i) => (
-        <b key={i} className={i === start ? "on" : ""}>{label(i)}</b>
+        // по значению можно попасть сразу тапом, не докручивая
+        <b key={i} className={i === start ? "on" : ""} onClick={() => goTo(i)}>
+          {label(i)}
+        </b>
       ))}
       <div className="pad" />
     </div>

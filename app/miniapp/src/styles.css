@@ -513,6 +513,7 @@ body.dark{--pick-filter:invert(1)}
   mask:linear-gradient(transparent,#000 26%,#000 74%,transparent)}
 .wheel::-webkit-scrollbar{display:none}
 .wheel b{display:block;height:44px;line-height:44px;scroll-snap-align:center;font-size:19px;
+  cursor:pointer;
   color:var(--hint);font-weight:500;font-variant-numeric:tabular-nums;
   transition:color .2s,transform .2s,opacity .2s;opacity:.55}
 .wheel b.on{color:var(--text);font-weight:700;transform:scale(1.14);opacity:1}
