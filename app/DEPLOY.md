@@ -535,14 +535,93 @@ docker compose run --rm certbot certbot renew --dry-run
 
 ---
 
+## Приложение А. Если на сервере уже есть nginx или другие сайты
+
+Так бывает, когда на VPS уже живут другие проекты. Занимать порты 80 и 443
+нашим контейнером в этом случае нельзя — они уже отданы системному веб-серверу.
+Правильное решение: пусть существующий nginx проксирует запросы к Meeto.
+
+### 1. Выяснить, кто занимает порт
+
+```bash
+sudo ss -ltnp | grep -E ':80 |:443 '
+```
+
+В последней колонке будет имя процесса: `nginx`, `apache2`, `caddy`
+или `docker-proxy` (значит, порт держит другой контейнер).
+
+### 2. Переключить Meeto в режим «за чужим nginx»
+
+```bash
+cd ~/meeto/app
+echo 'COMPOSE_FILE=docker-compose.yml:docker-compose.behind-nginx.yml' >> .env
+docker compose up -d --build
+docker compose ps
+```
+
+Теперь наши nginx и certbot не запускаются, а `api` и `miniapp` слушают
+только localhost — снаружи они недоступны, что и нужно.
+
+Проверка:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/health   # {"status":"ok"}
+curl -I http://127.0.0.1:8080              # 200 OK
+```
+
+### 3. Добавить сайт в системный nginx
+
+```bash
+sudo cp nginx/meeto-site.conf.example /etc/nginx/sites-available/meeto.conf
+sudo sed -i "s/MEETO_DOMAIN/$(grep '^DOMAIN=' .env | cut -d= -f2)/" /etc/nginx/sites-available/meeto.conf
+sudo ln -s /etc/nginx/sites-available/meeto.conf /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+`nginx -t` обязателен: если в конфиге опечатка, reload уронит **все** сайты
+на сервере, а не только Meeto.
+
+### 4. Сертификат через системный certbot
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d ваш-домен
+```
+
+Certbot сам допишет TLS в конфиг, включит редирект с http и поставит
+автопродление через systemd-таймер. Проверить:
+
+```bash
+sudo systemctl list-timers | grep certbot
+sudo certbot renew --dry-run
+```
+
+Дальше возвращайтесь к шагу 10 основной инструкции — проверке и настройке
+BotFather. Скрипт `init-cert.sh` в этом режиме не нужен.
+
+### Если другой веб-сервер — не nginx
+
+* **Apache**: аналогично, `ProxyPass /api/ http://127.0.0.1:8000/` и
+  `ProxyPass / http://127.0.0.1:8080/`, сертификат — `certbot --apache`.
+* **Caddy**: в `Caddyfile` достаточно блока
+  `ваш-домен { reverse_proxy /api/* 127.0.0.1:8000
+  reverse_proxy 127.0.0.1:8080 }` — TLS Caddy получит сам.
+* **Порт держит чужой контейнер** (`docker-proxy` в выводе `ss`): в том стеке
+  есть свой nginx или traefik — добавляйте маршрут туда, а Meeto оставляйте
+  на localhost, как в шаге 2.
+
+---
+
 ## Если что-то пошло не так
 
 **`init-cert.sh` пишет «Порт 80 занят»**
+Сначала посмотрите, кто его держит:
 ```bash
-docker compose down
-sudo systemctl stop nginx apache2 2>/dev/null
-./scripts/init-cert.sh
+sudo ss -ltnp | grep ':80 '
 ```
+Если это наш же старый запуск — `docker compose down` и повторите.
+Если там **чужой** nginx, apache или контейнер другого проекта — не гасите его,
+а переходите к **Приложению А**: Meeto встанет за существующий веб-сервер.
 
 **Let's Encrypt: `Timeout during connect` или `DNS problem`**
 DNS ещё не разошёлся либо A-запись указывает не туда. Проверьте:

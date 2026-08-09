@@ -1,0 +1,24 @@
+# Конфиг для СИСТЕМНОГО nginx, если он уже стоит на сервере.
+# Положить в /etc/nginx/sites-available/meeto.conf, заменив MEETO_DOMAIN.
+# TLS сюда допишет certbot --nginx, вручную сертификаты прописывать не нужно.
+
+server {
+    listen 80;
+    server_name MEETO_DOMAIN;
+
+    client_max_body_size 20m;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

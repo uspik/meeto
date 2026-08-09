@@ -1,0 +1,23 @@
+# Оверлей для случая, когда на сервере уже есть свой nginx (или другой веб-сервер).
+#
+# Что делает:
+#   * не поднимает наши nginx и certbot — порты 80/443 остаются у системного;
+#   * публикует api и miniapp только на localhost, наружу они не смотрят.
+#
+# Как включить: добавьте в .env строку
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.behind-nginx.yml
+# после этого обычная команда docker compose up -d подхватит оба файла.
+
+services:
+  api:
+    ports: ["127.0.0.1:8000:8000"]
+
+  miniapp:
+    ports: ["127.0.0.1:8080:80"]
+
+  # profiles с неактивным именем = сервис не стартует
+  nginx:
+    profiles: ["never"]
+
+  certbot:
+    profiles: ["never"]
