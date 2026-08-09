@@ -112,35 +112,54 @@ function Wheel({ count, index, label, onIndex }: WheelProps) {
     cur.current = i;
   }
 
-  const goTo = (i: number) =>
-    ref.current?.scrollTo({
-      top: Math.max(0, Math.min(count - 1, i)) * ROW,
-      behavior: "smooth",
-    });
+  const target = useRef(index);
+
+  const goTo = (i: number, smooth = true) => {
+    const clamped = Math.max(0, Math.min(count - 1, i));
+    target.current = clamped;
+    ref.current?.scrollTo({ top: clamped * ROW, behavior: smooth ? "smooth" : "auto" });
+    return clamped;
+  };
 
   // Колесо мыши: одна засечка прокручивает около 100 px, то есть больше двух
   // позиций по 44 px — барабан стабильно промахивался на 2. Перехватываем
-  // событие и двигаем ровно на шаг. Тачпад шлёт много мелких дельт, поэтому
-  // их копим. К касаниям это не относится: там остаётся родная инерция.
+  // событие и двигаем сами. Первые засечки идут строго по одной, дальше при
+  // быстром вращении шаг растёт: иначе от 16:00 до 16:50 крутить полсотни раз.
+  // Пауза или смена направления сбрасывают разгон — правим значение точно.
+  // К касаниям это не относится: там остаётся родная инерция.
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     let acc = 0;
     let last = 0;
+    let streak = 0;
+    let dir = 0;
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      const sign = Math.sign(e.deltaY) || 1;
       const notch = e.deltaMode !== 0 || Math.abs(e.deltaY) >= 30;
+
       if (notch) {
         const now = performance.now();
-        if (now - last < 90) return;
+        const gap = now - last;
+        if (gap < 55) return;                       // дребезг одной засечки
+        const rolling = gap < 260 && sign === dir;
+        streak = rolling ? streak + 1 : 0;
+        if (!rolling) target.current = cur.current; // догоняем реальную позицию
+        dir = sign;
         last = now;
-        goTo(cur.current + Math.sign(e.deltaY));
+        const step = streak < 3 ? 1 : Math.min(12, streak - 1);
+        goTo(target.current + sign * step, step <= 2);
       } else {
+        // тачпад: шаг пропорционален пройденному расстоянию, разгон встроен
         acc += e.deltaY;
-        if (Math.abs(acc) >= ROW * 0.6) {
-          goTo(cur.current + Math.sign(acc));
-          acc = 0;
+        const steps = Math.trunc(acc / (ROW * 0.8));
+        if (steps) {
+          acc -= steps * ROW * 0.8;
+          if (performance.now() - last > 260) target.current = cur.current;
+          last = performance.now();
+          goTo(target.current + steps, Math.abs(steps) <= 2);
         }
       }
     };
@@ -155,7 +174,10 @@ function Wheel({ count, index, label, onIndex }: WheelProps) {
     const i = Math.max(0, Math.min(count - 1, Math.round(el.scrollTop / ROW)));
     if (i !== cur.current) highlight(i);
     window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => commit.current(cur.current), 140);
+    timer.current = window.setTimeout(() => {
+      target.current = cur.current;
+      commit.current(cur.current);
+    }, 140);
   }
 
   return (
