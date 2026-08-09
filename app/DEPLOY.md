@@ -709,6 +709,19 @@ docker compose logs api | grep -i "401\|initData"
 **`docker compose up` падает на сборке miniapp**
 Не хватает памяти. Добавьте swap (шаг 3) и повторите.
 
+**Сборка api падает на `pip install ... exit code 1`**
+Посмотрите настоящую причину — она на несколько строк выше в логе:
+```bash
+docker compose build api 2>&1 | tail -40
+```
+Если там `ResolutionImpossible` или `conflicting dependencies` — версии в
+`requirements.txt` несовместимы между собой. Чаще всего виноват `pydantic`:
+`aiogram` держит на него верхнюю границу. Проверить подбор версий, не запуская
+Docker, можно так:
+```bash
+pip install --dry-run -r backend/requirements.txt
+```
+
 **api не стартует, в логах ошибка подключения к базе**
 Пароль в `DATABASE_URL` не совпадает с `POSTGRES_PASSWORD`. Исправьте `.env` и:
 ```bash
