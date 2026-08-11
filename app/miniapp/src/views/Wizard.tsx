@@ -6,6 +6,7 @@ import { MN, WD, dstr, hm } from "../lib/date";
 import { api } from "../lib/api";
 import { haptic } from "../lib/tg";
 import type { Event, EventFormat, Group, User } from "../lib/types";
+import { Overlay } from "../components/Overlay";
 
 const STEPS = ["Основное", "Когда", "Где", "Места"];
 const EMOJI = ["🎯", "🏐", "🏃", "🎂", "🍽️", "🎬", "🎲", "💻", "📚", "⛰️"];
@@ -160,7 +161,7 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
   const groupTitle = groups.find((g) => g.id === d.groupId)?.title ?? "Личное — без группы";
 
   return (
-    <>
+    <Overlay>
       <div className={`scrim on ${cls}`} onClick={close} />
       <div className={`wz on ${cls}`}>
         <div className="wz-hd">
@@ -434,6 +435,6 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
           </button>
         </div>
       </div>
-    </>
+    </Overlay>
   );
 }

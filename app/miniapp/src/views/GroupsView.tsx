@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { BottomBar } from "../components/BottomBar";
 import { PeoplePicker } from "../components/PeoplePicker";
+import { Select } from "../components/Select";
 import { api } from "../lib/api";
 import { shareLink } from "../lib/share";
 import type { Group, GroupRole, Member } from "../lib/types";
@@ -28,6 +29,7 @@ export function GroupsView({ groups, onChanged }: Props) {
   const [invite, setInvite] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDrop, setConfirmDrop] = useState(false);
 
   const group = groups.find((g) => g.id === openId) ?? null;
   const iAmBoss = group?.my_role === "owner" || group?.my_role === "admin";
@@ -159,26 +161,67 @@ export function GroupsView({ groups, onChanged }: Props) {
               <div className="rs">{ROLES[m.role] ?? m.role}</div>
             </div>
             {iAmBoss && m.role !== "owner" && (
-              <select
-                className="rolesel"
-                value={ASSIGNABLE.includes(m.role) ? m.role : "member"}
-                onChange={(e) =>
-                  guard(async () => {
-                    await api.setRole(group.id, m.user.id, e.target.value as GroupRole);
-                    setMembers(await api.members(group.id));
-                  })
-                }
-              >
-                {ASSIGNABLE.map((r) => (
-                  <option key={r} value={r}>{ROLES[r]}</option>
-                ))}
-              </select>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <Select
+                  compact
+                  value={ASSIGNABLE.includes(m.role) ? m.role : "member"}
+                  options={ASSIGNABLE.map((r) => ({ value: r, label: ROLES[r] }))}
+                  onChange={(v) =>
+                    guard(async () => {
+                      await api.setRole(group.id, m.user.id, v as GroupRole);
+                      setMembers(await api.members(group.id));
+                    })
+                  }
+                />
+                <button
+                  className="kick"
+                  title="Исключить из группы"
+                  onClick={() =>
+                    guard(async () => {
+                      await api.removeMember(group.id, m.user.id);
+                      setMembers(await api.members(group.id));
+                      onChanged();
+                    })
+                  }
+                >
+                  ✕
+                </button>
+              </div>
             )}
           </div>
         ))}
 
         {invite && <div className="note" style={{ wordBreak: "break-all" }}>{invite}</div>}
         {error && <div className="note warn2">{error}</div>}
+
+        {group.my_role === "owner" && (
+          confirmDrop ? (
+            <div className="note warn2" style={{ marginTop: 14 }}>
+              Удалить «{group.title}»? Мероприятия группы останутся, но она исчезнет у всех.
+              <div className="rsvp" style={{ padding: "10px 0 0" }}>
+                <button className="maybe" onClick={() => setConfirmDrop(false)}>Отмена</button>
+                <button
+                  className="declined on"
+                  onClick={() =>
+                    guard(async () => {
+                      await api.deleteGroup(group.id);
+                      setOpenId(null);
+                      onChanged();
+                    })
+                  }
+                >
+                  Удалить
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="rsvp" style={{ padding: "14px 0 0" }}>
+              <button className="declined" onClick={() => setConfirmDrop(true)}>
+                Удалить группу
+              </button>
+            </div>
+          )
+        )}
 
         {iAmBoss && (
           <div className="rsvp" style={{ padding: "14px 0 0" }}>

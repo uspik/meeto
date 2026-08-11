@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Overlay } from "../components/Overlay";
 
 import { useSheet } from "../lib/useSheet";
 import { Icon } from "../components/Icon";
@@ -76,7 +77,7 @@ export function EventSheet({ event, onClose, onChanged, onEdit, onInvite, onWho 
     ? Math.min(100, (event.going_count / event.quorum_min) * 100) : 0;
 
   return (
-    <>
+    <Overlay>
       <div className={`scrim on ${cls}`} onClick={close} />
       <div className={`sheet on ${cls}`}>
         <div className="grab" />
@@ -220,6 +221,6 @@ export function EventSheet({ event, onClose, onChanged, onEdit, onInvite, onWho 
               : "Смена ответа сразу обновляет календарь")}
         </div>
       </div>
-    </>
+    </Overlay>
   );
 }

@@ -8,6 +8,7 @@ import { EventSheet } from "./views/EventSheet";
 import { GroupsView } from "./views/GroupsView";
 import { ListView, type Period } from "./views/ListView";
 import { PeoplePicker } from "./components/PeoplePicker";
+import { Select } from "./components/Select";
 import { WhoIsGoing } from "./views/WhoIsGoing";
 import { MonthView } from "./views/MonthView";
 import { Wizard } from "./views/Wizard";
@@ -200,17 +201,16 @@ export default function App() {
             </button>
           ))}
           {groups.length > 0 && (
-            <select
-              className="chip gsel"
+            <Select
+              compact
               value={groupFilter}
-              onChange={(e) => setGroupFilter(e.target.value)}
-            >
-              <option value="all">Все группы</option>
-              <option value="personal">Личные</option>
-              {groups.map((g) => (
-                <option key={g.id} value={g.id}>{g.title}</option>
-              ))}
-            </select>
+              onChange={setGroupFilter}
+              options={[
+                { value: "all", label: "Все группы" },
+                { value: "personal", label: "Личные" },
+                ...groups.map((g) => ({ value: g.id, label: g.title })),
+              ]}
+            />
           )}
         </div>
       </div>

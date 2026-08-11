@@ -1,4 +1,5 @@
 import logging
+import secrets
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
@@ -12,6 +13,9 @@ from ..security import AuthError, decode, make_tokens, verify_init_data
 from ..services import invites as inv
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# отдельный служебный аккаунт, чтобы отладка не смешивалась с живыми людьми
+DEV_TG_ID = -1
 
 
 @router.post("/telegram", response_model=TokensOut)
@@ -55,6 +59,34 @@ async def login(authorization: str = Header(default=""), db: AsyncSession = Depe
         user=UserOut.model_validate(user),
         start_param=data.get("start_param"),
     )
+
+
+@router.post("/dev", response_model=TokensOut)
+async def dev_login(
+    token: str = Header(default="", alias="X-Dev-Token"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Вход без Telegram — только для отладки интерфейса в браузере.
+
+    Работает, если в .env задан DEV_LOGIN_TOKEN. Пустое значение полностью
+    выключает ручку: без него отсюда нельзя войти никак.
+    """
+    if not settings.dev_login_token:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "отладочный вход выключен")
+    if not secrets.compare_digest(token, settings.dev_login_token):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "неверный отладочный токен")
+
+    res = await db.execute(select(User).where(User.tg_id == DEV_TG_ID))
+    user = res.scalar_one_or_none()
+    if user is None:
+        user = User(tg_id=DEV_TG_ID, first_name="Отладка", username="devpreview",
+                    timezone=settings.default_tz)
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+    logging.getLogger("meeto.auth").warning("вход через отладочный токен")
+    return TokensOut(**make_tokens(str(user.id)), user=UserOut.model_validate(user))
 
 
 @router.post("/refresh", response_model=TokensOut)

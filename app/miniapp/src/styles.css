@@ -62,8 +62,10 @@ body{background:var(--bg);color:var(--text);
 
 /* ================= view transition ================= */
 #body{flex:1;min-height:0;position:relative;overflow:hidden}
+/* без will-change: он создаёт containing block для position:fixed,
+   и всплывающие панели переставали считаться от окна — их обрезала шапка */
 .view{position:absolute;inset:0;display:flex;flex-direction:column;opacity:0;
-  transition:opacity .26s ease,transform .34s cubic-bezier(.32,.72,0,1);will-change:opacity,transform}
+  transition:opacity .26s ease,transform .34s cubic-bezier(.32,.72,0,1)}
 .view.d-left{transform:translateX(-22px)}
 .view.d-right{transform:translateX(22px)}
 .view.d-none{transform:translateY(8px) scale(.99)}
@@ -620,3 +622,31 @@ html.theming,body.theming,body.theming *{
 .buildmark{text-align:center;font-size:11px;color:var(--hint);opacity:.7;padding:18px 0 4px}
 
 .pchip.wait{background:color-mix(in srgb,var(--waitlist) 26%,transparent)}
+
+
+/* ---- выпадающий список в стилистике приложения ---- */
+.sel-wrap{position:relative}
+.sel-wrap.compact .plate{height:34px;padding:0 10px;font-size:12.5px;border-radius:10px;
+  background:transparent}
+.sel-wrap.compact .pop-list{left:auto;right:0;min-width:170px}
+.sel-wrap.compact .opt{padding:9px 11px;font-size:13px}
+
+/* ---- список «Кто идёт» ---- */
+.wrow{display:flex;gap:11px;align-items:center;padding:10px 0;border-bottom:1px solid var(--sep)}
+.wrow:last-child{border-bottom:none}
+.wrow .wmeta{flex:1;min-width:0}
+.wrow .wname{display:flex;align-items:center;gap:7px;min-width:0}
+.wrow .wname em{font-style:normal;font-weight:640;font-size:14.5px;color:var(--text);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wrow .wsub{font-size:12px;color:var(--hint);margin-top:3px}
+.wrow .stat{flex:0 0 auto}
+.wtime{flex:0 0 auto;font-size:12.5px;font-weight:650;color:var(--text);
+  background:var(--bg2);border-radius:9px;padding:5px 9px;white-space:nowrap;
+  font-variant-numeric:tabular-nums}
+.wsec{font-size:11.5px;font-weight:700;color:var(--hint);text-transform:uppercase;
+  letter-spacing:.6px;margin:16px 0 4px}
+
+.kick{width:30px;height:30px;border:none;border-radius:9px;background:transparent;
+  color:var(--hint);font-size:13px;cursor:pointer;flex:0 0 auto;transition:.18s}
+.kick:hover{background:color-mix(in srgb,var(--decline) 14%,transparent);color:var(--decline)}
+.rsvp button.declined.on{background:var(--decline);border-color:var(--decline);color:#fff}

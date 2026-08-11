@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://meeto:meeto@db:5432/meeto"
     redis_url: str = "redis://redis:6379/0"
 
+    # Отладочный вход без Telegram. Пусто = выключен.
+    # Нужен, чтобы можно было открыть интерфейс в обычном браузере и увидеть
+    # его глазами. Держать включённым дольше отладки не стоит.
+    dev_login_token: str = ""
+
     default_tz: str = "Europe/Moscow"
     log_level: str = "INFO"
 

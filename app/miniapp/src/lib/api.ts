@@ -55,11 +55,22 @@ async function renew(): Promise<boolean> {
 export interface Session { user: User; start_param: string | null }
 
 export async function login(): Promise<Session> {
-  const res = await fetch(`${BASE}/auth/telegram`, {
-    method: "POST",
-    headers: { Authorization: `tma ${initData()}` },
-  });
-  if (!res.ok) throw new ApiError(res.status, "не удалось войти через Telegram");
+  // Отладочный вход: /?dev=<токен>. Работает, только если тот же токен
+  // задан на сервере в DEV_LOGIN_TOKEN — иначе ручки просто нет.
+  const dev = new URLSearchParams(location.search).get("dev");
+
+  const res = dev
+    ? await fetch(`${BASE}/auth/dev`, { method: "POST", headers: { "X-Dev-Token": dev } })
+    : await fetch(`${BASE}/auth/telegram`, {
+        method: "POST",
+        headers: { Authorization: `tma ${initData()}` },
+      });
+
+  if (!res.ok) {
+    throw new ApiError(res.status, dev
+      ? "отладочный вход не сработал"
+      : "не удалось войти через Telegram");
+  }
   const data = await res.json();
   access = data.access;
   refresh = data.refresh;
@@ -78,6 +89,7 @@ export const api = {
   createGroup: (body: { title: string; description?: string; color?: string }) =>
     raw<Group>("/groups", { method: "POST", body: JSON.stringify(body) }),
   members: (id: string) => raw<Member[]>(`/groups/${id}/members`),
+  deleteGroup: (id: string) => raw<void>(`/groups/${id}`, { method: "DELETE" }),
   invite: (id: string) =>
     raw<{ code: string; url: string }>(`/groups/${id}/invites`, { method: "POST" }),
   acceptInvite: (code: string) =>

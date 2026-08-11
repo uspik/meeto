@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Overlay } from "./Overlay";
 
 import { api } from "../lib/api";
 import { useSheet } from "../lib/useSheet";
@@ -76,7 +77,7 @@ export function PeoplePicker({ title, exclude, invite, onDone, onClose }: Props)
   };
 
   return (
-    <>
+    <Overlay>
       <div className={`scrim on ${cls}`} onClick={close} />
       <div className={`wz on ${cls}`}>
         <div className="wz-hd">
@@ -176,6 +177,6 @@ export function PeoplePicker({ title, exclude, invite, onDone, onClose }: Props)
           </button>
         </div>
       </div>
-    </>
+    </Overlay>
   );
 }
