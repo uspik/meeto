@@ -119,6 +119,10 @@ export function GroupsView({ groups, onChanged }: Props) {
           )}
 
           {error && <div className="note warn2">{error}</div>}
+
+          {/* Видимый штамп сборки: по нему сразу понятно, свежая ли версия
+              приехала на устройство, или вебвью показывает кеш */}
+          <div className="buildmark">Meeto · сборка {__BUILD__}</div>
         </div>
         <BottomBar label="Новая группа" onMain={() => setCreating(true)} />
       </>
