@@ -108,14 +108,28 @@ class ParticipantOut(ORM):
 
 
 class MembersIn(BaseModel):
-    user_ids: list[UUID] = Field(min_length=1)
+    user_ids: list[UUID] = []
+    # тех, кого в Meeto ещё нет, зовём по @username — приглашение сработает,
+    # когда человек впервые откроет бота
+    usernames: list[str] = []
     role: GroupRole = GroupRole.member
 
 
 class InviteUsersIn(BaseModel):
     """Гости вне группы: попадают в мероприятие, но не в саму группу."""
 
-    user_ids: list[UUID] = Field(min_length=1)
+    user_ids: list[UUID] = []
+    usernames: list[str] = []
+
+
+class InviteResult(BaseModel):
+    added: int = 0
+    pending: list[str] = []
+
+
+class ParticipantsOut(BaseModel):
+    participants: list["ParticipantOut"] = []
+    pending: list[str] = []
 
 
 class EventOut(ORM):

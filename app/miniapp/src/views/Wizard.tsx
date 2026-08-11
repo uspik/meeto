@@ -46,6 +46,7 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
   const [error, setError] = useState<string | null>(null);
   const [groupOpen, setGroupOpen] = useState(false);
   const [guests, setGuests] = useState<User[]>([]);
+  const [guestHandles, setGuestHandles] = useState<string[]>([]);
   const [people, setPeople] = useState(false);
   const [d, setD] = useState<Draft>(() => {
     if (!edit) {
@@ -145,7 +146,9 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
         ? await api.updateEvent(edit.id, payload)
         : await api.createEvent({ ...payload, group_id: d.groupId });
 
-      if (guests.length) await api.inviteToEvent(saved.id, guests.map((u) => u.id));
+      if (guests.length || guestHandles.length) {
+        await api.inviteToEvent(saved.id, guests.map((u) => u.id), guestHandles);
+      }
       onCreated(saved);
     } catch (e) {
       setError(e instanceof Error ? e.message : "не удалось создать");
@@ -379,8 +382,9 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
                   <div className="tx">
                     <b>Гости вне группы</b>
                     <span>
-                      {guests.length
-                        ? guests.map((u) => u.first_name).join(", ")
+                      {guests.length || guestHandles.length
+                        ? [...guests.map((u) => u.first_name),
+                           ...guestHandles.map((h) => `@${h}`)].join(", ")
                         : "Позвать людей, не вступая ими в группу"}
                     </span>
                   </div>
@@ -400,12 +404,13 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
           <PeoplePicker
             title="Кого позвать"
             onClose={() => setPeople(false)}
-            onDone={(users) =>
+            onDone={(users, usernames) => {
               setGuests((prev) => [
                 ...prev,
                 ...users.filter((u) => !prev.some((p) => p.id === u.id)),
-              ])
-            }
+              ]);
+              setGuestHandles((prev) => [...new Set([...prev, ...usernames])]);
+            }}
           />
         )}
 

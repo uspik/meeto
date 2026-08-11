@@ -7,13 +7,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..deps import current_user, membership, require_group
-from ..models import Event, EventStatus, GroupMember, Participant, RsvpStatus, User
+from ..models import (
+    Event, EventStatus, GroupMember, Participant, PendingInvite, RsvpStatus, User,
+)
 from ..permissions import can
-from ..schemas import EventIn, EventOut, EventPatch, InviteUsersIn, ParticipantOut, RsvpIn
+from ..schemas import (
+    EventIn, EventOut, EventPatch, InviteResult, InviteUsersIn, ParticipantOut,
+    ParticipantsOut, RsvpIn,
+)
+from ..services import invites as inv
 from ..services import events as svc
 from ..services.notify import enqueue
 
 router = APIRouter(prefix="/events", tags=["events"])
+
+
+# правки, ради которых стоит слать уведомление
+SIGNIFICANT = {
+    "starts_at", "ends_at", "place", "format", "online_url",
+    "capacity_max", "quorum_min", "quorum_deadline",
+}
 
 
 def aware(dt: datetime) -> datetime:
@@ -169,9 +182,9 @@ async def edit(
     for key, val in changed.items():
         setattr(ev, key, val)
 
-    # уведомляем всех приглашённых о любой правке, а не только о переносе:
-    # смена места или лимита мест для участника не менее важна
-    if changed:
+    # Беспокоим людей только тем, что влияет на решение идти или нет.
+    # Правка описания, обложки или названия проходит тихо.
+    if set(changed) & SIGNIFICANT:
         rows = (await db.execute(
             select(Participant).where(Participant.event_id == ev.id)
         )).scalars().all()
@@ -211,17 +224,24 @@ async def cancel(
     return await to_out(db, ev, me)
 
 
-@router.get("/{event_id}/participants", response_model=list[ParticipantOut])
+@router.get("/{event_id}/participants", response_model=ParticipantsOut)
 async def participants(
     event_id: UUID, me: User = Depends(current_user), db: AsyncSession = Depends(get_db)
 ):
+    """Кто идёт: ответившие плюс те, кого позвали, но кто ещё не в Meeto."""
     res = await db.execute(
         select(Participant).where(Participant.event_id == event_id).order_by(Participant.invited_at)
     )
-    return list(res.scalars().all())
+    waiting = await db.execute(
+        select(PendingInvite.username).where(PendingInvite.event_id == event_id)
+    )
+    return ParticipantsOut(
+        participants=[ParticipantOut.model_validate(p) for p in res.scalars().all()],
+        pending=list(waiting.scalars().all()),
+    )
 
 
-@router.post("/{event_id}/invite", response_model=list[ParticipantOut], status_code=201)
+@router.post("/{event_id}/invite", response_model=InviteResult, status_code=201)
 async def invite(
     event_id: UUID, body: InviteUsersIn,
     me: User = Depends(current_user), db: AsyncSession = Depends(get_db),
@@ -238,8 +258,11 @@ async def invite(
     if not out.can_edit:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "нет прав приглашать в это мероприятие")
 
+    found, missing = await inv.resolve(db, body.usernames)
+    ids = list(body.user_ids) + [u.id for u in found]
+
     added: list[Participant] = []
-    for uid_ in body.user_ids:
+    for uid_ in ids:
         if await my_part(db, ev.id, uid_) is not None:
             continue
         if await db.get(User, uid_) is None:
@@ -254,10 +277,10 @@ async def invite(
                        "place": f"\n\U0001f4cd {ev.place}" if ev.place else "",
                        "event_id": str(ev.id)},
                       dedup_key=f"invited:{ev.id}:{uid_}")
+
+    pending = await inv.remember(db, missing, by=me.id, event_id=ev.id)
     await db.commit()
-    for p in added:
-        await db.refresh(p)
-    return added
+    return InviteResult(added=len(added), pending=pending)
 
 
 @router.post("/{event_id}/rsvp", response_model=EventOut)
@@ -295,10 +318,16 @@ async def rsvp(
             await enqueue(db, cand.user_id, "waitlist.promoted",
                           {"title": ev.title, "when": fmt_when(ev), "event_id": str(ev.id)})
 
-    if was != now and ev.creator_id != me.id:
-        await enqueue(db, ev.creator_id, "rsvp.received",
-                      {"who": me.display_name, "answer": now.value, "title": ev.title,
-                       "going": ev.going_count, "event_id": str(ev.id)})
+    # Поштучных уведомлений организатору о каждом ответе больше нет:
+    # на мероприятии в двадцать человек это превращалось в спам.
+    # Остаются только события, которые действительно требуют реакции:
+    # набранный кворум, заполнение мест, продвижение очереди.
+    if (was is not RsvpStatus.going and now is RsvpStatus.going
+            and ev.capacity_max is not None and ev.seats_taken >= ev.capacity_max
+            and ev.creator_id != me.id):
+        await enqueue(db, ev.creator_id, "capacity.full",
+                      {"title": ev.title, "capacity": ev.capacity_max, "event_id": str(ev.id)},
+                      dedup_key=f"full:{ev.id}:{ev.capacity_max}")
 
     if (ev.quorum_min and ev.going_count >= ev.quorum_min
             and ev.status is EventStatus.published):

@@ -8,6 +8,7 @@ import { EventSheet } from "./views/EventSheet";
 import { GroupsView } from "./views/GroupsView";
 import { ListView, type Period } from "./views/ListView";
 import { PeoplePicker } from "./components/PeoplePicker";
+import { WhoIsGoing } from "./views/WhoIsGoing";
 import { MonthView } from "./views/MonthView";
 import { Wizard } from "./views/Wizard";
 
@@ -43,6 +44,7 @@ export default function App() {
   const [wizard, setWizard] = useState(false);
   const [groupFilter, setGroupFilter] = useState<string | "all">("all");
   const [inviteTo, setInviteTo] = useState<Event | null>(null);
+  const [whoFor, setWhoFor] = useState<Event | null>(null);
   const [editEvent, setEditEvent] = useState<Event | null>(null);
 
   const range = useMemo((): [Date, Date] => {
@@ -189,7 +191,7 @@ export default function App() {
           ))}
         </div>
 
-        <div className="filters">
+        <div className={`filters ${view === "groups" ? "hidden" : ""}`}>
           {(Object.keys(FILTERS) as Filter[]).map((k) => (
             <button key={k} className={`chip ${filter === k ? "on" : ""}`} onClick={() => setFilter(k)}>
               {k === "going" && <u style={{ background: "var(--accept)" }} />}
@@ -259,15 +261,20 @@ export default function App() {
           onChanged={upsert}
           onEdit={(e) => { setOpenEvent(null); setEditEvent(e); }}
           onInvite={(e) => { setOpenEvent(null); setInviteTo(e); }}
+          onWho={(e) => setWhoFor(e)}
         />
       )}
+
+      {whoFor && <WhoIsGoing event={whoFor} onClose={() => setWhoFor(null)} />}
 
       {inviteTo && (
         <PeoplePicker
           title="Кого позвать"
           onClose={() => setInviteTo(null)}
-          onDone={async (users) => {
-            await api.inviteToEvent(inviteTo.id, users.map((u) => u.id)).catch(() => undefined);
+          onDone={async (users, usernames) => {
+            await api
+              .inviteToEvent(inviteTo.id, users.map((u) => u.id), usernames)
+              .catch(() => undefined);
             void reload();
           }}
         />

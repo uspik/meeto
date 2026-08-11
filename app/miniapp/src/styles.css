@@ -48,7 +48,11 @@ body{background:var(--bg);color:var(--text);
   font-size:12.5px;font-weight:640;padding:7px 0;cursor:pointer;transition:color .2s}
 .seg button.on{color:var(--text)}
 
-.filters{display:flex;gap:7px;padding:0 16px 10px}
+.filters{display:flex;gap:7px;padding:0 16px 10px;overflow:hidden;
+  max-height:44px;opacity:1;
+  transition:max-height .3s cubic-bezier(.32,.72,0,1),opacity .22s ease,padding .3s ease}
+/* на вкладке групп фильтры мешают строке поиска — плавно убираем */
+.filters.hidden{max-height:0;opacity:0;padding-top:0;padding-bottom:0}
 .chip{flex:0 0 auto;border:1px solid var(--sep);background:transparent;color:var(--hint);
   border-radius:16px;padding:5px 12px;font-size:12.5px;font-weight:560;cursor:pointer;
   white-space:nowrap;transition:.18s;display:flex;align-items:center;gap:5px}
@@ -614,3 +618,5 @@ html.theming,body.theming,body.theming *{
 .plate:disabled{opacity:.7;cursor:default}
 
 .buildmark{text-align:center;font-size:11px;color:var(--hint);opacity:.7;padding:18px 0 4px}
+
+.pchip.wait{background:color-mix(in srgb,var(--waitlist) 26%,transparent)}

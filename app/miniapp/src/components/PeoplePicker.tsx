@@ -11,7 +11,8 @@ interface Props {
   exclude?: Set<string>;
   /** ссылка-приглашение для тех, кого в Meeto ещё нет */
   invite?: { url: string; text: string } | null;
-  onDone(users: User[]): void;
+  /** usernames — те, кого в Meeto ещё нет; их зовём заранее */
+  onDone(users: User[], usernames: string[]): void;
   onClose(): void;
 }
 
@@ -30,6 +31,7 @@ export function PeoplePicker({ title, exclude, invite, onDone, onClose }: Props)
   const [q, setQ] = useState("");
   const [list, setList] = useState<User[]>([]);
   const [picked, setPicked] = useState<User[]>([]);
+  const [invited, setInvited] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef(0);
@@ -61,6 +63,18 @@ export function PeoplePicker({ title, exclude, invite, onDone, onClose }: Props)
       prev.some((p) => p.id === u.id) ? prev.filter((p) => p.id !== u.id) : [...prev, u],
     );
 
+  // @username, которого ещё нет в Meeto: приглашение сработает при первом входе
+  const handle = q.trim().replace(/^@/, "").toLowerCase();
+  const canInviteHandle =
+    /^[a-z0-9_]{4,32}$/.test(handle) &&
+    !invited.includes(handle) &&
+    !visible.some((u) => (u.username ?? "").toLowerCase() === handle);
+
+  const inviteHandle = () => {
+    setInvited((prev) => [...prev, handle]);
+    setQ("");
+  };
+
   return (
     <>
       <div className={`scrim on ${cls}`} onClick={close} />
@@ -68,7 +82,11 @@ export function PeoplePicker({ title, exclude, invite, onDone, onClose }: Props)
         <div className="wz-hd">
           <div className="wz-top">
             <h3>{title}</h3>
-            <small>{picked.length ? `выбрано ${picked.length}` : "никого"}</small>
+            <small>
+              {picked.length + invited.length
+                ? `выбрано ${picked.length + invited.length}`
+                : "никого"}
+            </small>
             <button className="ib" onClick={close}>✕</button>
           </div>
           <input
@@ -78,11 +96,20 @@ export function PeoplePicker({ title, exclude, invite, onDone, onClose }: Props)
             placeholder="Имя или @username"
             onChange={(e) => setQ(e.target.value)}
           />
-          {picked.length > 0 && (
+          {(picked.length > 0 || invited.length > 0) && (
             <div className="picked">
               {picked.map((u) => (
                 <button key={u.id} className="pchip" onClick={() => toggle(u)}>
                   {fullName(u)} <i>✕</i>
+                </button>
+              ))}
+              {invited.map((h) => (
+                <button
+                  key={h}
+                  className="pchip wait"
+                  onClick={() => setInvited((prev) => prev.filter((x) => x !== h))}
+                >
+                  @{h} <i>✕</i>
                 </button>
               ))}
             </div>
@@ -98,7 +125,7 @@ export function PeoplePicker({ title, exclude, invite, onDone, onClose }: Props)
             <div className="empty">
               <div>👤</div>
               {q
-                ? "Никого не нашли. Человека можно найти по точному @username или позвать ссылкой."
+                ? "Никого не нашли. Позовите по @username — приглашение сработает, когда человек впервые откроет Meeto."
                 : "Здесь появятся те, с кем у вас есть общие группы и мероприятия."}
             </div>
           )}
@@ -120,6 +147,12 @@ export function PeoplePicker({ title, exclude, invite, onDone, onClose }: Props)
             </div>
           ))}
 
+          {canInviteHandle && (
+            <button className="add" style={{ marginTop: 12 }} onClick={inviteHandle}>
+              Позвать @{handle} — его пока нет в Meeto
+            </button>
+          )}
+
           {invite && (
             <button
               className="add"
@@ -135,10 +168,11 @@ export function PeoplePicker({ title, exclude, invite, onDone, onClose }: Props)
           <button className="back" onClick={close}>Отмена</button>
           <button
             className="go"
-            disabled={picked.length === 0}
-            onClick={() => { onDone(picked); close(); }}
+            disabled={picked.length + invited.length === 0}
+            onClick={() => { onDone(picked, invited); close(); }}
           >
-            Добавить{picked.length ? ` (${picked.length})` : ""}
+            Добавить{picked.length + invited.length
+              ? ` (${picked.length + invited.length})` : ""}
           </button>
         </div>
       </div>

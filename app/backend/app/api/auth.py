@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +9,7 @@ from ..db import get_db
 from ..models import User
 from ..schemas import TokensOut, UserOut
 from ..security import AuthError, decode, make_tokens, verify_init_data
+from ..services import invites as inv
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -35,6 +38,15 @@ async def login(authorization: str = Header(default=""), db: AsyncSession = Depe
     user.photo_url = tg.get("photo_url")
     user.language_code = tg.get("language_code") or "ru"
     user.is_bot_blocked = False
+    await db.flush()
+
+    # приглашения, оставленные до появления человека в Meeto
+    applied = await inv.apply_for(db, user)
+    if applied:
+        logging.getLogger("meeto.auth").info(
+            "применено отложенных приглашений: %s для @%s", applied, user.username
+        )
+
     await db.commit()
     await db.refresh(user)
 

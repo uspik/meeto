@@ -178,7 +178,7 @@ async def main() -> None:
             gena = r.json(); H4 = {"Authorization": "Bearer " + gena["access"]}
             r = await c.post(f"/groups/{gid}/members", headers=H1,
                              json={"user_ids": [gena["user"]["id"]], "role": "member"})
-            check("участник добавлен", r.status_code == 201, r.text[:200])
+            check("участник добавлен", r.status_code == 201 and r.json()["added"] == 1, r.text[:200])
             r = await c.get(f"/groups/{gid}/members", headers=H1)
             check("в группе четверо", len(r.json()) == 4, str(len(r.json())))
             r = await c.post(f"/groups/{gid}/members", headers=H1,
@@ -192,7 +192,8 @@ async def main() -> None:
             sid = r.json()["id"]
             r = await c.post(f"/events/{sid}/invite", headers=H1,
                              json={"user_ids": [borya["user"]["id"]]})
-            check("гость приглашён на личное мероприятие", r.status_code == 201, r.text[:200])
+            check("гость приглашён на личное мероприятие",
+                  r.status_code == 201 and r.json()["added"] == 1, r.text[:200])
             r = await c.get(f"/events/{sid}", headers=H2)
             check("гость видит мероприятие", r.json()["my_status"] == "invited")
             r = await c.get("/groups", headers=H2)
@@ -203,10 +204,53 @@ async def main() -> None:
             check("автор редактирует", r.status_code == 200 and r.json()["title"] == "Личное+")
             r = await c.patch(f"/events/{sid}", headers=H2, json={"title": "чужое"})
             check("посторонний не редактирует", r.status_code == 403)
+            async def updates():
+                async with SessionLocal() as db:
+                    return (await db.execute(select(func.count()).select_from(Outbox)
+                            .where(Outbox.type == "event.updated"))).scalar_one()
+
+            check("правка названия проходит тихо", await updates() == 0, str(await updates()))
+            before_n = await updates()
+            await c.patch(f"/events/{sid}", headers=H1, json={"place": "Новый зал"})
+            check("а смена места — уведомляет", await updates() > before_n)
+            before_n = await updates()
+            await c.patch(f"/events/{sid}", headers=H1, json={"description": "просто текст"})
+            check("описание — тихо", await updates() == before_n)
+
+            print("\n=== ответы больше не спамят организатора ===")
             async with SessionLocal() as db:
-                n = (await db.execute(select(func.count()).select_from(Outbox)
-                     .where(Outbox.type == "event.updated"))).scalar_one()
-            check("участникам ушло уведомление о правке", n >= 1, str(n))
+                spam = (await db.execute(select(func.count()).select_from(Outbox)
+                        .where(Outbox.type == "rsvp.received"))).scalar_one()
+            check("поштучных уведомлений об ответах нет", spam == 0, str(spam))
+
+            print("\n=== приглашение того, кого ещё нет в Meeto ===")
+            r = await c.post(f"/events/{sid}/invite", headers=H1,
+                             json={"usernames": ["@newcomer"]})
+            check("приглашение отложено", r.json()["pending"] == ["newcomer"], r.text[:150])
+            r = await c.get(f"/events/{sid}/participants", headers=H1)
+            check("виден в списке как ожидающий", r.json()["pending"] == ["newcomer"], r.text[:200])
+
+            r = await c.post("/auth/telegram",
+                             headers={"Authorization": f"tma {init_data(77, 'Newcomer')}"})
+            HN = {"Authorization": "Bearer " + r.json()["access"]}
+            r = await c.get(f"/events/{sid}", headers=HN)
+            check("после первого входа мероприятие уже ждёт", r.status_code == 200
+                  and r.json()["my_status"] == "invited", r.text[:150])
+            r = await c.get(f"/events/{sid}/participants", headers=H1)
+            check("из ожидающих исчез", r.json()["pending"] == [], r.text[:150])
+
+            print("\n=== время прихода участника ===")
+            flex = {"title": "Гибкое", "format": "online", "is_time_flexible": True,
+                    "starts_at": start.isoformat(),
+                    "ends_at": (start + timedelta(hours=4)).isoformat()}
+            r = await c.post("/events", headers=H1, json=flex)
+            fid = r.json()["id"]
+            await c.post(f"/events/{fid}/invite", headers=H1,
+                         json={"user_ids": [borya["user"]["id"]]})
+            arrive = (start + timedelta(hours=2)).isoformat()
+            r = await c.post(f"/events/{fid}/rsvp", headers=H2,
+                             json={"status": "going", "arrival_at": arrive})
+            check("время прихода сохранено", r.json()["my_arrival"] is not None, r.text[:200])
 
             print("\n=== завершённое мероприятие ===")
             past = {"title": "Вчера", "format": "online",

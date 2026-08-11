@@ -1,5 +1,8 @@
 import { initData } from "./tg";
-import type { CalendarPayload, Event, Group, GroupRole, Member, User } from "./types";
+import type {
+  CalendarPayload, Event, Group, GroupRole, InviteResult, Member,
+  ParticipantsPayload, User,
+} from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "/api/v1";
 
@@ -84,10 +87,12 @@ export const api = {
     raw<User[]>(`/users/search?q=${encodeURIComponent(q)}`),
   eventCandidates: (id: string) => raw<User[]>(`/users/of-event/${id}`),
 
-  addMembers: (groupId: string, userIds: string[], role: GroupRole = "member") =>
-    raw<Member[]>(`/groups/${groupId}/members`, {
+  addMembers: (
+    groupId: string, userIds: string[], usernames: string[] = [], role: GroupRole = "member",
+  ) =>
+    raw<InviteResult>(`/groups/${groupId}/members`, {
       method: "POST",
-      body: JSON.stringify({ user_ids: userIds, role }),
+      body: JSON.stringify({ user_ids: userIds, usernames, role }),
     }),
   setRole: (groupId: string, userId: string, role: GroupRole) =>
     raw<Member>(`/groups/${groupId}/members/${userId}?role=${role}`, { method: "PATCH" }),
@@ -97,11 +102,12 @@ export const api = {
   event: (id: string) => raw<Event>(`/events/${id}`),
   updateEvent: (id: string, body: Record<string, unknown>) =>
     raw<Event>(`/events/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  inviteToEvent: (id: string, userIds: string[]) =>
-    raw<unknown>(`/events/${id}/invite`, {
+  inviteToEvent: (id: string, userIds: string[], usernames: string[] = []) =>
+    raw<InviteResult>(`/events/${id}/invite`, {
       method: "POST",
-      body: JSON.stringify({ user_ids: userIds }),
+      body: JSON.stringify({ user_ids: userIds, usernames }),
     }),
+  participants: (id: string) => raw<ParticipantsPayload>(`/events/${id}/participants`),
   createEvent: (body: Record<string, unknown>) =>
     raw<Event>("/events", { method: "POST", body: JSON.stringify(body) }),
   cancelEvent: (id: string, reason: string) =>

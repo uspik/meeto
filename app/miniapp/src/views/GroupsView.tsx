@@ -206,9 +206,9 @@ export function GroupsView({ groups, onChanged }: Props) {
           exclude={existing}
           invite={invite ? { url: invite, text: `Присоединяйтесь к группе «${group.title}»` } : null}
           onClose={() => setPicker(false)}
-          onDone={(users) =>
+          onDone={(users, usernames) =>
             guard(async () => {
-              await api.addMembers(group.id, users.map((u) => u.id));
+              await api.addMembers(group.id, users.map((u) => u.id), usernames);
               setMembers(await api.members(group.id));
               onChanged();
             })

@@ -251,3 +251,30 @@ class Outbox(Base):
         UniqueConstraint("dedup_key", name="ux_outbox_dedup"),
         Index("ix_outbox_due", "scheduled_at", "state"),
     )
+
+
+class PendingInvite(Base):
+    """Приглашение человеку, которого в Meeto ещё нет.
+
+    Хранится по @username. Как только он впервые откроет бота, приглашение
+    применится само — и группа с мероприятием уже будут его ждать.
+    Новая таблица создаётся из моделей, существующие не трогает.
+    """
+
+    __tablename__ = "pending_invites"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uid)
+    username: Mapped[str] = mapped_column(String(64), index=True)
+    group_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("groups.id", ondelete="CASCADE")
+    )
+    event_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("events.id", ondelete="CASCADE")
+    )
+    role: Mapped[GroupRole] = mapped_column(Enum(GroupRole), default=GroupRole.member)
+    invited_by: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("users.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("username", "group_id", "event_id", name="ux_pending_target"),
+    )

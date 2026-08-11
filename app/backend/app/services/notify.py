@@ -13,7 +13,7 @@ TEMPLATES = {
     "event.updated": "✏️ Изменилось мероприятие <b>{title}</b>\n{when}{place}",
     "event.cancelled": "\U0001f7e0 Отменено: <b>{title}</b>\n{reason}",
     "event.reminder": "⏰ Скоро: <b>{title}</b>\n{when}{place}",
-    "rsvp.received": "✅ {who} — {answer}: <b>{title}</b> ({going} идут)",
+    "capacity.full": "\U0001f6ab Мест больше нет: <b>{title}</b> — все {capacity} заняты",
     "waitlist.promoted": "\U0001f389 Место освободилось: <b>{title}</b>\n{when}",
     "quorum.reached": "✅ Кворум набран: <b>{title}</b> — {going}/{quorum}",
     "quorum.failed": "\U0001f7e0 Кворум не набран, мероприятие отменено: <b>{title}</b>",

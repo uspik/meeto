@@ -16,6 +16,19 @@ export interface Group {
 
 export interface Member { user: User; role: GroupRole; joined_at: string }
 
+export interface Participant {
+  user: User;
+  status: RsvpStatus;
+  arrival_at?: string | null;
+  departure_at?: string | null;
+  waitlist_pos?: number | null;
+}
+
+/** Список участников: ответившие плюс позванные, кого ещё нет в Meeto. */
+export interface ParticipantsPayload { participants: Participant[]; pending: string[] }
+
+export interface InviteResult { added: number; pending: string[] }
+
 export interface Event {
   id: string;
   group_id?: string | null;

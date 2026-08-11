@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useSheet } from "../lib/useSheet";
 import { Icon } from "../components/Icon";
 import { StatusChip } from "../components/StatusChip";
-import { MN, hm } from "../lib/date";
+import { MN, hm, p2 } from "../lib/date";
 import { api } from "../lib/api";
 import { haptic } from "../lib/tg";
 import type { Event, RsvpStatus } from "../lib/types";
@@ -19,20 +19,50 @@ interface Props {
   onChanged(e: Event): void;
   onEdit(e: Event): void;
   onInvite(e: Event): void;
+  onWho(e: Event): void;
 }
 
-export function EventSheet({ event, onClose, onChanged, onEdit, onInvite }: Props) {
+export function EventSheet({ event, onClose, onChanged, onEdit, onInvite, onWho }: Props) {
   const { close, cls } = useSheet(onClose);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const start = new Date(event.starts_at);
+  const finish = event.ends_at ? new Date(event.ends_at) : new Date(+start + 3600_000);
+  const window = Math.max(0, Math.round((+finish - +start) / 60_000));
+
+  // сдвиг прихода в минутах от начала: по умолчанию приходим к началу
+  const [late, setLate] = useState(() =>
+    event.my_arrival
+      ? Math.max(0, Math.round((+new Date(event.my_arrival) - +start) / 60_000))
+      : 0,
+  );
+  const arriveAt = new Date(+start + late * 60_000);
+
+  async function saveArrival(minutes: number) {
+    setLate(minutes);
+    if (event.my_status !== "going") return;
+    try {
+      onChanged(await api.rsvp(event.id, {
+        status: "going",
+        arrival_at: new Date(+start + minutes * 60_000).toISOString(),
+      }));
+    } catch {
+      /* молча: значение вернётся при следующей загрузке */
+    }
+  }
 
   async function answer(status: RsvpStatus) {
     haptic();
     setBusy(true);
     setError(null);
     try {
-      onChanged(await api.rsvp(event.id, { status: event.my_status === status ? "invited" : status }));
+      const next = event.my_status === status ? "invited" : status;
+      onChanged(await api.rsvp(event.id, {
+        status: next,
+        arrival_at: next === "going" && late > 0
+          ? new Date(+start + late * 60_000).toISOString()
+          : null,
+      }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "не удалось сохранить ответ");
     } finally {
@@ -128,6 +158,37 @@ export function EventSheet({ event, onClose, onChanged, onEdit, onInvite }: Prop
 
           {event.description && (
             <div className="kv"><span>Описание</span><div>{event.description}</div></div>
+          )}
+        </div>
+
+        <div className="sh-sec">
+          <div className="kv" style={{ display: "block" }}>
+            <span style={{ width: "auto" }}>Кто идёт</span>
+            <button className="tb" style={{ marginTop: 8 }} onClick={() => onWho(event)}>
+              Посмотреть список · {event.going_count}
+            </button>
+          </div>
+
+          {event.my_status === "going" && event.can_rsvp && window > 15 && (
+            <div className="kv" style={{ display: "block" }}>
+              <span style={{ width: "auto" }}>Во сколько придёте</span>
+              <input
+                type="range"
+                className="rng"
+                min={0}
+                max={window - 15}
+                step={15}
+                value={Math.min(late, Math.max(0, window - 15))}
+                onChange={(e) => setLate(Number(e.target.value))}
+                onMouseUp={(e) => saveArrival(Number((e.target as HTMLInputElement).value))}
+                onTouchEnd={(e) => saveArrival(Number((e.target as HTMLInputElement).value))}
+              />
+              <div className="rngrow">
+                <span>{hm(start)}</span>
+                <b>{late === 0 ? "к началу" : `к ${p2(arriveAt.getHours())}:${p2(arriveAt.getMinutes())}`}</b>
+                <span>{hm(finish)}</span>
+              </div>
+            </div>
           )}
         </div>
 

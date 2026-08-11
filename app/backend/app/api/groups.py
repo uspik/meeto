@@ -10,7 +10,8 @@ from ..config import settings
 from ..db import get_db
 from ..deps import current_user, is_owner, membership, require_group
 from ..models import Group, GroupInvite, GroupMember, GroupRole, User
-from ..schemas import GroupIn, GroupOut, InviteOut, MemberOut, MembersIn
+from ..schemas import GroupIn, GroupOut, InviteOut, InviteResult, MemberOut, MembersIn
+from ..services import invites as inv
 from ..services.notify import enqueue
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -87,18 +88,25 @@ async def members(group_id: UUID, me: User = Depends(current_user), db: AsyncSes
 UI_ROLES = {GroupRole.owner, GroupRole.admin, GroupRole.member}
 
 
-@router.post("/{group_id}/members", response_model=list[MemberOut], status_code=201)
+@router.post("/{group_id}/members", response_model=InviteResult, status_code=201)
 async def add_members(
     group_id: UUID, body: MembersIn,
     me: User = Depends(current_user), db: AsyncSession = Depends(get_db),
 ):
-    """Добавить людей в группу — как при создании чата в Telegram."""
+    """Добавить людей в группу — как при создании чата в Telegram.
+
+    Кого ещё нет в Meeto, зовём по @username: приглашение сработает при
+    первом входе, и группа уже будет его ждать.
+    """
     group, _ = await require_group(db, group_id, me, "members.invite")
     if body.role not in UI_ROLES or body.role is GroupRole.owner:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "недопустимая роль")
 
+    found, missing = await inv.resolve(db, body.usernames)
+    ids = list(body.user_ids) + [u.id for u in found]
+
     added: list[GroupMember] = []
-    for uid_ in body.user_ids:
+    for uid_ in ids:
         if await membership(db, group_id, uid_) is not None:
             continue
         if await db.get(User, uid_) is None:
@@ -108,10 +116,10 @@ async def add_members(
         added.append(member)
         await enqueue(db, uid_, "group.invited", {"title": group.title, "who": me.display_name},
                       dedup_key=f"group-add:{group_id}:{uid_}")
+
+    pending = await inv.remember(db, missing, by=me.id, group_id=group_id, role=body.role)
     await db.commit()
-    for m in added:
-        await db.refresh(m)
-    return added
+    return InviteResult(added=len(added), pending=pending)
 
 
 @router.patch("/{group_id}/members/{user_id}", response_model=MemberOut)
@@ -177,7 +185,10 @@ async def make_invite(
     db.add(GroupInvite(code=code, group_id=group_id, created_by=me.id,
                        max_uses=max_uses, expires_at=expires_at))
     await db.commit()
-    url = f"https://t.me/{settings.bot_username}/app?startapp=g_{code}"
+    # Прямая ссылка на главный Mini App бота. Формат /app?startapp= требует
+    # отдельно созданного через /newapp приложения с коротким именем "app",
+    # иначе Telegram отвечает «Bot application not found».
+    url = f"https://t.me/{settings.bot_username}?startapp=g_{code}"
     return InviteOut(code=code, url=url, expires_at=expires_at, max_uses=max_uses)
 
 
