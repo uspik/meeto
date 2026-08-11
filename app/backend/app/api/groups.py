@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..db import get_db
 from ..deps import current_user, is_owner, membership, require_group
-from ..models import Group, GroupInvite, GroupMember, GroupRole, User
+from ..models import Group, GroupInvite, GroupMember, GroupRole, PendingInvite, User
 from ..schemas import GroupIn, GroupOut, InviteOut, InviteResult, MemberOut, MembersIn
 from ..services import invites as inv
 from ..services.notify import enqueue
@@ -190,6 +190,35 @@ async def make_invite(
     # иначе Telegram отвечает «Bot application not found».
     url = f"https://t.me/{settings.bot_username}?startapp=g_{code}"
     return InviteOut(code=code, url=url, expires_at=expires_at, max_uses=max_uses)
+
+
+@router.get("/{group_id}/pending", response_model=list[str])
+async def pending(
+    group_id: UUID, me: User = Depends(current_user), db: AsyncSession = Depends(get_db)
+):
+    """Кого позвали, но кто ещё не открывал Meeto."""
+    await require_group(db, group_id, me)
+    rows = await db.execute(
+        select(PendingInvite.username).where(PendingInvite.group_id == group_id)
+    )
+    return list(rows.scalars().all())
+
+
+@router.delete("/{group_id}/pending/{username}", status_code=204)
+async def drop_pending(
+    group_id: UUID, username: str,
+    me: User = Depends(current_user), db: AsyncSession = Depends(get_db),
+):
+    await require_group(db, group_id, me, "members.invite")
+    rows = await db.execute(
+        select(PendingInvite).where(
+            PendingInvite.group_id == group_id,
+            PendingInvite.username == username.lstrip("@").lower(),
+        )
+    )
+    for row in rows.scalars():
+        await db.delete(row)
+    await db.commit()
 
 
 @router.post("/invites/{code}/accept", response_model=GroupOut)

@@ -650,3 +650,12 @@ html.theming,body.theming,body.theming *{
   color:var(--hint);font-size:13px;cursor:pointer;flex:0 0 auto;transition:.18s}
 .kick:hover{background:color-mix(in srgb,var(--decline) 14%,transparent);color:var(--decline)}
 .rsvp button.declined.on{background:var(--decline);border-color:var(--decline);color:#fff}
+
+.rsvp button:disabled{opacity:.45;cursor:default}
+.rsvp button:disabled:active{transform:none}
+.wide{display:flex;align-items:center;justify-content:space-between;width:100%;
+  margin-top:10px;padding:13px 14px;border:1px solid var(--sep);border-radius:14px;
+  background:var(--bg2);color:var(--text);font-family:inherit;font-size:14.5px;
+  font-weight:600;cursor:pointer;transition:background .18s}
+.wide:active{background:var(--card)}
+.wide b{font-weight:700;color:var(--link)}

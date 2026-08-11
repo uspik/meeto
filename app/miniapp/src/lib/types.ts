@@ -57,6 +57,8 @@ export interface Event {
   /** мероприятие уже прошло: отметка «Завершено» ставится дополнительно */
   is_past: boolean;
   can_rsvp: boolean;
+  /** время прихода можно указать даже организатору */
+  can_set_arrival: boolean;
   rsvp_locked_reason?: string | null;
 }
 

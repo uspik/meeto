@@ -87,6 +87,9 @@ async def to_out(db: AsyncSession, ev: Event, me: User, part: Participant | None
         can_edit=editable and not is_past and ev.status is not EventStatus.cancelled,
         is_past=is_past,
         can_rsvp=reason is None,
+        can_set_arrival=(
+            going and not is_past and ev.status is not EventStatus.cancelled
+        ),
         rsvp_locked_reason=reason,
     )
 
@@ -294,10 +297,14 @@ async def rsvp(
     if ev is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "мероприятие не найдено")
     guard = await to_out(db, ev, me)
-    if not guard.can_rsvp:
+    part = await my_part(db, event_id, me.id)
+
+    # Организатору ответ закрыт, но время прихода он указывать вправе:
+    # запрос, который не меняет статус, пропускаем.
+    arrival_only = part is not None and part.status == body.status
+    if not guard.can_rsvp and not (arrival_only and guard.can_set_arrival):
         raise HTTPException(status.HTTP_409_CONFLICT, guard.rsvp_locked_reason or "ответ закрыт")
 
-    part = await my_part(db, event_id, me.id)
     if part is None:
         part = Participant(event_id=event_id, user_id=me.id)
         db.add(part)
@@ -309,7 +316,8 @@ async def rsvp(
     except ValueError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
-    if ev.is_time_flexible:
+    # время прихода имеет смысл на любом мероприятии, а не только «гибком»
+    if body.arrival_at is not None or body.departure_at is not None:
         part.arrival_at, part.departure_at = body.arrival_at, body.departure_at
     part.note = body.note
 

@@ -90,6 +90,9 @@ export const api = {
     raw<Group>("/groups", { method: "POST", body: JSON.stringify(body) }),
   members: (id: string) => raw<Member[]>(`/groups/${id}/members`),
   deleteGroup: (id: string) => raw<void>(`/groups/${id}`, { method: "DELETE" }),
+  groupPending: (id: string) => raw<string[]>(`/groups/${id}/pending`),
+  cancelPending: (id: string, username: string) =>
+    raw<void>(`/groups/${id}/pending/${username}`, { method: "DELETE" }),
   invite: (id: string) =>
     raw<{ code: string; url: string }>(`/groups/${id}/invites`, { method: "POST" }),
   acceptInvite: (code: string) =>

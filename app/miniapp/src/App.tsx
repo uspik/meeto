@@ -261,7 +261,7 @@ export default function App() {
           onChanged={upsert}
           onEdit={(e) => { setOpenEvent(null); setEditEvent(e); }}
           onInvite={(e) => { setOpenEvent(null); setInviteTo(e); }}
-          onWho={(e) => setWhoFor(e)}
+          onWho={(e) => { setOpenEvent(null); setWhoFor(e); }}
         />
       )}
 

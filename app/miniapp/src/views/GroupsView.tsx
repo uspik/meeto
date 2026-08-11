@@ -4,6 +4,7 @@ import { BottomBar } from "../components/BottomBar";
 import { PeoplePicker } from "../components/PeoplePicker";
 import { Select } from "../components/Select";
 import { api } from "../lib/api";
+import { plural } from "../lib/date";
 import { shareLink } from "../lib/share";
 import type { Group, GroupRole, Member } from "../lib/types";
 
@@ -30,6 +31,7 @@ export function GroupsView({ groups, onChanged }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDrop, setConfirmDrop] = useState(false);
+  const [pending, setPending] = useState<string[]>([]);
 
   const group = groups.find((g) => g.id === openId) ?? null;
   const iAmBoss = group?.my_role === "owner" || group?.my_role === "admin";
@@ -38,6 +40,7 @@ export function GroupsView({ groups, onChanged }: Props) {
     if (!openId) return;
     setInvite(null);
     api.members(openId).then(setMembers).catch(() => setMembers([]));
+    api.groupPending(openId).then(setPending).catch(() => setPending([]));
   }, [openId]);
 
   async function guard(fn: () => Promise<unknown>) {
@@ -88,7 +91,8 @@ export function GroupsView({ groups, onChanged }: Props) {
               <div className="meta">
                 <div className="rt"><em>{g.title}</em></div>
                 <div className="rs">
-                  {g.members_count} участников · вы {ROLES[g.my_role ?? "member"]}
+                  {g.members_count} {plural(g.members_count, "участник", "участника", "участников")}
+                  {" · вы "}{ROLES[g.my_role ?? "member"]}
                 </div>
               </div>
               <span style={{ color: "var(--hint)" }}>›</span>
@@ -147,7 +151,10 @@ export function GroupsView({ groups, onChanged }: Props) {
           </span>
           <div>
             <div className="ttl">{group.title}</div>
-            <div className="sub">{members.length} участников</div>
+            <div className="sub">
+              {members.length} {plural(members.length, "участник", "участника", "участников")}
+              {pending.length > 0 && ` · ${pending.length} ждут первого входа`}
+            </div>
           </div>
         </div>
 
@@ -190,6 +197,35 @@ export function GroupsView({ groups, onChanged }: Props) {
             )}
           </div>
         ))}
+
+        {pending.length > 0 && (
+          <>
+            <div className="wsec">Позваны, ещё не в Meeto</div>
+            {pending.map((h) => (
+              <div key={h} className="wrow">
+                <span className="pav" style={{ background: "var(--bg2)", color: "var(--hint)" }}>@</span>
+                <div className="wmeta">
+                  <div className="wname"><em>@{h}</em></div>
+                  <div className="wsub">попадёт в группу при первом входе</div>
+                </div>
+                {iAmBoss && (
+                  <button
+                    className="kick"
+                    title="Отменить приглашение"
+                    onClick={() =>
+                      guard(async () => {
+                        await api.cancelPending(group.id, h);
+                        setPending(await api.groupPending(group.id));
+                      })
+                    }
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+          </>
+        )}
 
         {invite && <div className="note" style={{ wordBreak: "break-all" }}>{invite}</div>}
         {error && <div className="note warn2">{error}</div>}
@@ -253,6 +289,7 @@ export function GroupsView({ groups, onChanged }: Props) {
             guard(async () => {
               await api.addMembers(group.id, users.map((u) => u.id), usernames);
               setMembers(await api.members(group.id));
+              setPending(await api.groupPending(group.id));
               onChanged();
             })
           }

@@ -159,6 +159,8 @@ class EventOut(ORM):
     can_edit: bool = False
     is_past: bool = False
     can_rsvp: bool = True
+    # организатор не может отказаться, но время прихода указать вправе
+    can_set_arrival: bool = False
     rsvp_locked_reason: str | None = None
 
 

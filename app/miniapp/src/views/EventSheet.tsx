@@ -163,14 +163,12 @@ export function EventSheet({ event, onClose, onChanged, onEdit, onInvite, onWho 
         </div>
 
         <div className="sh-sec">
-          <div className="kv" style={{ display: "block" }}>
-            <span style={{ width: "auto" }}>Кто идёт</span>
-            <button className="tb" style={{ marginTop: 8 }} onClick={() => onWho(event)}>
-              Посмотреть список · {event.going_count}
-            </button>
-          </div>
+          <button className="wide" onClick={() => onWho(event)}>
+            <span>Кто идёт</span>
+            <b>{event.going_count}</b>
+          </button>
 
-          {event.my_status === "going" && event.can_rsvp && window > 15 && (
+          {event.can_set_arrival && window > 15 && (
             <div className="kv" style={{ display: "block" }}>
               <span style={{ width: "auto" }}>Во сколько придёте</span>
               <input
