@@ -56,6 +56,7 @@ export interface Event {
   can_edit: boolean;
   /** мероприятие уже прошло: отметка «Завершено» ставится дополнительно */
   is_past: boolean;
+  is_organizer: boolean;
   can_rsvp: boolean;
   /** время прихода можно указать даже организатору */
   can_set_arrival: boolean;

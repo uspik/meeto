@@ -48,11 +48,16 @@ body{background:var(--bg);color:var(--text);
   font-size:12.5px;font-weight:640;padding:7px 0;cursor:pointer;transition:color .2s}
 .seg button.on{color:var(--text)}
 
-.filters{display:flex;gap:7px;padding:0 16px 10px;overflow:hidden;
-  max-height:44px;opacity:1;
-  transition:max-height .3s cubic-bezier(.32,.72,0,1),opacity .22s ease,padding .3s ease}
-/* на вкладке групп фильтры мешают строке поиска — плавно убираем */
-.filters.hidden{max-height:0;opacity:0;padding-top:0;padding-bottom:0}
+/* Внешний слой отвечает за сворачивание, внутренний — за прокрутку.
+   Одним элементом не обойтись: overflow:hidden для анимации высоты
+   конфликтует с overflow-x:auto для ленты. */
+.filters{overflow:hidden;max-height:52px;opacity:1;
+  transition:max-height .3s cubic-bezier(.32,.72,0,1),opacity .22s ease}
+.filters.hidden{max-height:0;opacity:0}
+.filters-row{display:flex;gap:7px;padding:0 16px 10px;overflow-x:auto;overflow-y:visible;
+  scroll-behavior:smooth;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.filters-row::-webkit-scrollbar{display:none}
+.filters-row > *{flex:0 0 auto}
 .chip{flex:0 0 auto;border:1px solid var(--sep);background:transparent;color:var(--hint);
   border-radius:16px;padding:5px 12px;font-size:12.5px;font-weight:560;cursor:pointer;
   white-space:nowrap;transition:.18s;display:flex;align-items:center;gap:5px}
@@ -659,3 +664,14 @@ html.theming,body.theming,body.theming *{
   font-weight:600;cursor:pointer;transition:background .18s}
 .wide:active{background:var(--card)}
 .wide b{font-weight:700;color:var(--link)}
+
+/* выпадающий список: рисуется порталом, поэтому фиксированные координаты */
+.drop{position:fixed;z-index:90;background:var(--card);border:1px solid var(--sep);
+  border-radius:13px;padding:4px;box-shadow:var(--shadow);max-height:260px;overflow-y:auto;
+  animation:dropIn .2s cubic-bezier(.32,.72,0,1) both;transform-origin:top}
+.drop.up{transform-origin:bottom}
+@keyframes dropIn{from{opacity:0;transform:translateY(-6px) scale(.98)}
+  to{opacity:1;transform:none}}
+.plate.compact{height:34px;padding:0 10px;font-size:12.5px;border-radius:16px;
+  background:transparent;border-color:var(--sep);width:auto;gap:6px}
+.plate.compact i{font-size:9px}

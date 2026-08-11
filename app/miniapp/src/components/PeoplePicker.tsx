@@ -12,6 +12,9 @@ interface Props {
   exclude?: Set<string>;
   /** ссылка-приглашение для тех, кого в Meeto ещё нет */
   invite?: { url: string; text: string } | null;
+  /** уже выбранные ранее — галки должны остаться на месте */
+  initial?: User[];
+  initialHandles?: string[];
   /** usernames — те, кого в Meeto ещё нет; их зовём заранее */
   onDone(users: User[], usernames: string[]): void;
   onClose(): void;
@@ -27,12 +30,14 @@ const initials = (u: User) =>
  * а из тех, с кем есть общие группы или мероприятия; незнакомого можно
  * найти по точному @username или позвать ссылкой.
  */
-export function PeoplePicker({ title, exclude, invite, onDone, onClose }: Props) {
+export function PeoplePicker({
+  title, exclude, invite, initial, initialHandles, onDone, onClose,
+}: Props) {
   const { close, cls } = useSheet(onClose);
   const [q, setQ] = useState("");
   const [list, setList] = useState<User[]>([]);
-  const [picked, setPicked] = useState<User[]>([]);
-  const [invited, setInvited] = useState<string[]>([]);
+  const [picked, setPicked] = useState<User[]>(initial ?? []);
+  const [invited, setInvited] = useState<string[]>(initialHandles ?? []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef(0);
@@ -53,9 +58,11 @@ export function PeoplePicker({ title, exclude, invite, onDone, onClose }: Props)
     return () => window.clearTimeout(timer.current);
   }, [q]);
 
+  const pickedIdsRaw = picked.map((u) => u.id);
   const visible = useMemo(
-    () => list.filter((u) => !exclude?.has(u.id)),
-    [list, exclude],
+    () => list.filter((u) => !exclude?.has(u.id) || pickedIdsRaw.includes(u.id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [list, exclude, pickedIdsRaw.join()],
   );
   const pickedIds = useMemo(() => new Set(picked.map((u) => u.id)), [picked]);
 

@@ -158,6 +158,7 @@ class EventOut(ORM):
     my_arrival: datetime | None = None
     can_edit: bool = False
     is_past: bool = False
+    is_organizer: bool = False
     can_rsvp: bool = True
     # организатор не может отказаться, но время прихода указать вправе
     can_set_arrival: bool = False

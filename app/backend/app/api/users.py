@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..deps import current_user
-from ..models import Event, GroupMember, Participant, User
+from ..models import Contact, Event, GroupMember, Participant, User
 from ..schemas import UserOut
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -28,7 +28,10 @@ async def known_ids(db: AsyncSession, me: User) -> set:
     by_event = await db.execute(
         select(distinct(Participant.user_id)).where(Participant.event_id.in_(my_events))
     )
-    ids = set(by_group.scalars().all()) | set(by_event.scalars().all())
+    saved = await db.execute(select(Contact.user_id).where(Contact.owner_id == me.id))
+
+    ids = (set(by_group.scalars().all()) | set(by_event.scalars().all())
+           | set(saved.scalars().all()))
     ids.discard(me.id)
     return ids
 

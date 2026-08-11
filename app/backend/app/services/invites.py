@@ -12,7 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
-    Event, GroupMember, GroupRole, Participant, PendingInvite, RsvpStatus, User,
+    Contact, Event, GroupMember, GroupRole, Participant, PendingInvite,
+    RsvpStatus, User,
 )
 
 
@@ -97,3 +98,16 @@ async def apply_for(db: AsyncSession, user: User) -> int:
         await db.delete(inv)
 
     return applied
+
+
+async def remember_contact(db: AsyncSession, owner: UUID, others: list[UUID]) -> None:
+    """Двусторонняя запись: обе стороны потом видят друг друга в выборе."""
+    for other in others:
+        if other == owner:
+            continue
+        for a, b in ((owner, other), (other, owner)):
+            exists = await db.execute(
+                select(Contact).where(Contact.owner_id == a, Contact.user_id == b)
+            )
+            if exists.scalar_one_or_none() is None:
+                db.add(Contact(owner_id=a, user_id=b))

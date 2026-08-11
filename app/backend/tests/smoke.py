@@ -217,6 +217,37 @@ async def main() -> None:
             await c.patch(f"/events/{sid}", headers=H1, json={"description": "просто текст"})
             check("описание — тихо", await updates() == before_n)
 
+            print("\n=== правка целиком, но без изменений ===")
+            r = await c.get(f"/events/{sid}", headers=H1)
+            full = r.json()
+            before_all = await updates()
+            await c.patch(f"/events/{sid}", headers=H1, json={
+                "title": full["title"], "starts_at": full["starts_at"],
+                "ends_at": full["ends_at"], "place": full["place"],
+                "format": full["format"],
+            })
+            check("форма прислала всё, но значения те же — тихо",
+                  await updates() == before_all, str(await updates()))
+            await c.patch(f"/events/{sid}", headers=H1, json={
+                "title": full["title"], "starts_at": full["starts_at"],
+                "place": "Совсем другой зал", "format": full["format"],
+            })
+            check("а вот реальная смена места — уведомляет", await updates() > before_all)
+
+            print("\n=== исключённого можно позвать обратно ===")
+            r = await c.get("/users/search", headers=H1)
+            had = {u["first_name"] for u in r.json()}
+            await c.delete(f"/groups/{gid}/members/{vika['user']['id']}", headers=H1)
+            r = await c.get("/users/search", headers=H1)
+            check("после исключения остаётся в контактах",
+                  "Вика" in {u["first_name"] for u in r.json()}, str(had))
+
+            print("\n=== выход из группы ===")
+            r = await c.delete(f"/groups/{gid}/members/{borya['user']['id']}", headers=H2)
+            check("участник вышел сам", r.status_code == 204, r.text[:150])
+            r = await c.delete(f"/groups/{gid}/members/{anya['user']['id']}", headers=H1)
+            check("владелец выйти не может", r.status_code == 403, r.text[:150])
+
             print("\n=== ответы больше не спамят организатора ===")
             async with SessionLocal() as db:
                 spam = (await db.execute(select(func.count()).select_from(Outbox)

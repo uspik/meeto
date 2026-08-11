@@ -117,6 +117,7 @@ async def add_members(
         await enqueue(db, uid_, "group.invited", {"title": group.title, "who": me.display_name},
                       dedup_key=f"group-add:{group_id}:{uid_}")
 
+    await inv.remember_contact(db, me.id, ids)
     pending = await inv.remember(db, missing, by=me.id, group_id=group_id, role=body.role)
     await db.commit()
     return InviteResult(added=len(added), pending=pending)
@@ -149,12 +150,20 @@ async def set_role(
 async def kick(
     group_id: UUID, user_id: UUID, me: User = Depends(current_user), db: AsyncSession = Depends(get_db)
 ):
-    await require_group(db, group_id, me, "members.remove")
+    # выйти из группы можно всегда, исключать других — только с правом
+    if user_id == me.id:
+        await require_group(db, group_id, me)
+    else:
+        await require_group(db, group_id, me, "members.remove")
     target = await membership(db, group_id, user_id)
     if target is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "участник не найден")
     if target.role is GroupRole.owner:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "владельца исключить нельзя")
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "владелец не может выйти — сначала передайте владение"
+            if user_id == me.id else "владельца исключить нельзя",
+        )
     await db.delete(target)
     await db.commit()
 

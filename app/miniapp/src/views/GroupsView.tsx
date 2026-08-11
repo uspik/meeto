@@ -19,9 +19,9 @@ const ASSIGNABLE: GroupRole[] = ["admin", "member"];
 const fullName = (u: { first_name: string; last_name?: string | null }) =>
   [u.first_name, u.last_name].filter(Boolean).join(" ");
 
-interface Props { groups: Group[]; onChanged(): void }
+interface Props { groups: Group[]; meId: string; onChanged(): void }
 
-export function GroupsView({ groups, onChanged }: Props) {
+export function GroupsView({ groups, meId, onChanged }: Props) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [creating, setCreating] = useState(false);
@@ -273,6 +273,23 @@ export function GroupsView({ groups, onChanged }: Props) {
           </div>
         )}
       </div>
+
+      {group.my_role !== "owner" && (
+        <div className="rsvp" style={{ padding: "0 16px 12px" }}>
+          <button
+            className="declined"
+            onClick={() =>
+              guard(async () => {
+                await api.removeMember(group.id, meId);
+                setOpenId(null);
+                onChanged();
+              })
+            }
+          >
+            Выйти из группы
+          </button>
+        </div>
+      )}
 
       <BottomBar
         label={iAmBoss ? "Добавить участников" : "Назад к группам"}

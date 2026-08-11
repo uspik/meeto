@@ -191,18 +191,22 @@ export function EventSheet({ event, onClose, onChanged, onEdit, onInvite, onWho 
           )}
         </div>
 
-        <div className="rsvp">
-          {ANSWERS.map(([value, label]) => (
-            <button
-              key={value}
-              className={`${value} ${event.my_status === value ? "on" : ""}`}
-              disabled={busy || !event.can_rsvp}
-              onClick={() => answer(value)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {/* Организатору выбор не нужен: он идёт по определению.
+            Показывать три отключённые кнопки — только занимать место. */}
+        {!event.is_organizer && (
+          <div className="rsvp">
+            {ANSWERS.map(([value, label]) => (
+              <button
+                key={value}
+                className={`${value} ${event.my_status === value ? "on" : ""}`}
+                disabled={busy || !event.can_rsvp}
+                onClick={() => answer(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {event.can_edit && (
           <div className="rsvp" style={{ paddingTop: 8 }}>

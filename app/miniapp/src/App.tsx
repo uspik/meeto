@@ -38,6 +38,7 @@ export default function App() {
   // Двухслойный переход между вкладками: уходящий экран остаётся снимком
   // разметки на 340 мс и растворяется, пока новый въезжает навстречу.
   const bodyRef = useRef<HTMLDivElement>(null);
+  const filtersRef = useRef<HTMLDivElement>(null);
   // dir: 1 — вправо по порядку вкладок, -1 — влево. ghost живёт 340 мс.
   const [anim, setAnim] = useState<{ dir: 1 | -1; html: string; id: number } | null>(null);
 
@@ -193,25 +194,38 @@ export default function App() {
         </div>
 
         <div className={`filters ${view === "groups" ? "hidden" : ""}`}>
+          <div className="filters-row" ref={filtersRef}>
           {(Object.keys(FILTERS) as Filter[]).map((k) => (
-            <button key={k} className={`chip ${filter === k ? "on" : ""}`} onClick={() => setFilter(k)}>
+            <button
+              key={k}
+              className={`chip ${filter === k ? "on" : ""}`}
+              onClick={(e) => {
+                setFilter(k);
+                // «nearest» — минимальная прокрутка: чип просто целиком
+                // въезжает в экран, а не уезжает к левому краю
+                (e.currentTarget as HTMLElement).scrollIntoView({
+                  behavior: "smooth", inline: "nearest", block: "nearest",
+                });
+              }}
+            >
               {k === "going" && <u style={{ background: "var(--accept)" }} />}
               {k === "away" && <u style={{ background: "var(--neutral)" }} />}
               {FILTERS[k]}<b>{counts[k]}</b>
             </button>
           ))}
-          {groups.length > 0 && (
-            <Select
-              compact
-              value={groupFilter}
-              onChange={setGroupFilter}
-              options={[
-                { value: "all", label: "Все группы" },
-                { value: "personal", label: "Личные" },
-                ...groups.map((g) => ({ value: g.id, label: g.title })),
-              ]}
-            />
-          )}
+            {groups.length > 0 && (
+              <Select
+                compact
+                value={groupFilter}
+                onChange={setGroupFilter}
+                options={[
+                  { value: "all", label: "Все группы" },
+                  { value: "personal", label: "Личные" },
+                  ...groups.map((g) => ({ value: g.id, label: g.title })),
+                ]}
+              />
+            )}
+          </div>
         </div>
       </div>
 
@@ -243,7 +257,7 @@ export default function App() {
             />
           )}
           {view === "groups" && (
-            <GroupsView groups={groups} onChanged={() => void reload()} />
+            <GroupsView groups={groups} meId={user?.id ?? ""} onChanged={() => void reload()} />
           )}
           {view === "list" && (
             <ListView

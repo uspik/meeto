@@ -86,6 +86,7 @@ async def to_out(db: AsyncSession, ev: Event, me: User, part: Participant | None
         my_arrival=part.arrival_at if part else None,
         can_edit=editable and not is_past and ev.status is not EventStatus.cancelled,
         is_past=is_past,
+        is_organizer=ev.creator_id == me.id,
         can_rsvp=reason is None,
         can_set_arrival=(
             going and not is_past and ev.status is not EventStatus.cancelled
@@ -181,13 +182,20 @@ async def edit(
     if not out.can_edit:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "нет прав на редактирование")
 
-    changed = body.model_dump(exclude_none=True)
-    for key, val in changed.items():
+    incoming = body.model_dump(exclude_none=True)
+
+    # Форма присылает всё поля разом, поэтому «поле пришло» ещё не значит
+    # «значение поменялось». Сравниваем со старым — иначе уведомление уходило
+    # на каждое сохранение, даже когда правили одно название.
+    really_changed = {
+        key for key, val in incoming.items()
+        if getattr(ev, key) != val
+    }
+    for key, val in incoming.items():
         setattr(ev, key, val)
 
     # Беспокоим людей только тем, что влияет на решение идти или нет.
-    # Правка описания, обложки или названия проходит тихо.
-    if set(changed) & SIGNIFICANT:
+    if really_changed & SIGNIFICANT:
         rows = (await db.execute(
             select(Participant).where(Participant.event_id == ev.id)
         )).scalars().all()
@@ -281,6 +289,7 @@ async def invite(
                        "event_id": str(ev.id)},
                       dedup_key=f"invited:{ev.id}:{uid_}")
 
+    await inv.remember_contact(db, me.id, ids)
     pending = await inv.remember(db, missing, by=me.id, event_id=ev.id)
     await db.commit()
     return InviteResult(added=len(added), pending=pending)

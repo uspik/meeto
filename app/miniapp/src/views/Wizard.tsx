@@ -404,13 +404,12 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
         {people && (
           <PeoplePicker
             title="Кого позвать"
+            initial={guests}
+            initialHandles={guestHandles}
             onClose={() => setPeople(false)}
             onDone={(users, usernames) => {
-              setGuests((prev) => [
-                ...prev,
-                ...users.filter((u) => !prev.some((p) => p.id === u.id)),
-              ]);
-              setGuestHandles((prev) => [...new Set([...prev, ...usernames])]);
+              setGuests(users);
+              setGuestHandles(usernames);
             }}
           />
         )}

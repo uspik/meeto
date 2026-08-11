@@ -278,3 +278,22 @@ class PendingInvite(Base):
     __table_args__ = (
         UniqueConstraint("username", "group_id", "event_id", name="ux_pending_target"),
     )
+
+
+class Contact(Base):
+    """С кем вы уже пересекались: приглашали, добавляли, звали.
+
+    Нужна, чтобы человек оставался в списке выбора после исключения из группы.
+    Без неё «знакомые» вычислялись только по текущим общим группам, и
+    исключённого нельзя было позвать обратно иначе как по @username.
+    """
+
+    __tablename__ = "contacts"
+
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
