@@ -675,3 +675,22 @@ html.theming,body.theming,body.theming *{
 .plate.compact{height:34px;padding:0 10px;font-size:12.5px;border-radius:16px;
   background:transparent;border-color:var(--sep);width:auto;gap:6px}
 .plate.compact i{font-size:9px}
+
+/* ---- ссылка-приглашение ---- */
+.linkbox{margin-top:4px}
+.linkval{display:flex;align-items:center;gap:10px;width:100%;padding:12px 13px;
+  border:1px solid var(--sep);border-radius:13px;background:var(--bg2);cursor:pointer;
+  font-family:inherit;text-align:left;transition:background .18s}
+.linkval:active{background:var(--card)}
+.linkval span{flex:1;min-width:0;font-size:12.5px;color:var(--text);word-break:break-all}
+.linkval b{flex:0 0 auto;font-size:11.5px;font-weight:700;color:var(--link)}
+
+/* переход между списком групп и карточкой группы */
+@keyframes pageIn{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+.gpage{animation:pageIn .28s cubic-bezier(.32,.72,0,1) both}
+
+/* Список дня не должен скакать при выборе даты: держим минимальную высоту,
+   тогда геометрия страницы остаётся стабильной, а меняется только содержимое */
+#strip{min-height:40vh}
+@keyframes stripIn{from{opacity:0}to{opacity:1}}
+#strip.swap{animation:stripIn .26s ease both}

@@ -5,7 +5,7 @@ import { PeoplePicker } from "../components/PeoplePicker";
 import { Select } from "../components/Select";
 import { api } from "../lib/api";
 import { plural } from "../lib/date";
-import { shareLink } from "../lib/share";
+import { copy, shareLink } from "../lib/share";
 import type { Group, GroupRole, Member } from "../lib/types";
 
 /** В интерфейсе три роли; остальные из модели наружу не выводим. */
@@ -31,6 +31,8 @@ export function GroupsView({ groups, meId, onChanged }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDrop, setConfirmDrop] = useState(false);
+  const [confirmRotate, setConfirmRotate] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [pending, setPending] = useState<string[]>([]);
 
   const group = groups.find((g) => g.id === openId) ?? null;
@@ -38,9 +40,12 @@ export function GroupsView({ groups, meId, onChanged }: Props) {
 
   useEffect(() => {
     if (!openId) return;
-    setInvite(null);
+    setConfirmRotate(false);
+    setCopied(false);
     api.members(openId).then(setMembers).catch(() => setMembers([]));
     api.groupPending(openId).then(setPending).catch(() => setPending([]));
+    // ссылка постоянная: показываем ту же, что и в прошлый раз
+    api.invite(openId).then((r) => setInvite(r.url)).catch(() => setInvite(null));
   }, [openId]);
 
   async function guard(fn: () => Promise<unknown>) {
@@ -64,17 +69,19 @@ export function GroupsView({ groups, meId, onChanged }: Props) {
       setOpenId(g.id);
     });
 
-  const link = () =>
+  const rotate = () =>
     guard(async () => {
-      const res = await api.invite(openId!);
+      const res = await api.rotateInvite(openId!);
       setInvite(res.url);
+      setConfirmRotate(false);
+      setCopied(false);
     });
 
   /* ---------- список групп ---------- */
   if (!group) {
     return (
       <>
-        <div className="list" id="listScroll">
+        <div className="list gpage" id="listScroll" key="all">
           {groups.length === 0 && !creating && (
             <div className="empty">
               <div>👥</div>
@@ -140,7 +147,7 @@ export function GroupsView({ groups, meId, onChanged }: Props) {
 
   return (
     <>
-      <div className="list" id="listScroll">
+      <div className="list gpage" id="listScroll" key={group.id}>
         <div className="gtop">
           <button className="tb" onClick={() => setOpenId(null)}>‹ Все группы</button>
         </div>
@@ -227,7 +234,42 @@ export function GroupsView({ groups, meId, onChanged }: Props) {
           </>
         )}
 
-        {invite && <div className="note" style={{ wordBreak: "break-all" }}>{invite}</div>}
+        {iAmBoss && invite && (
+          <div className="linkbox">
+            <div className="wsec" style={{ margin: "16px 0 6px" }}>Ссылка-приглашение</div>
+            <button
+              className="linkval"
+              onClick={async () => {
+                setCopied(await copy(invite));
+                window.setTimeout(() => setCopied(false), 1800);
+              }}
+            >
+              <span>{invite}</span>
+              <b>{copied ? "скопировано" : "копировать"}</b>
+            </button>
+            <div className="rsvp" style={{ padding: "8px 0 0" }}>
+              <button
+                className="maybe"
+                onClick={() => shareLink(invite, `Присоединяйтесь к группе «${group.title}» в Meeto`)}
+              >
+                Поделиться
+              </button>
+              <button className="maybe" onClick={() => setConfirmRotate(true)} disabled={busy}>
+                Поменять ссылку
+              </button>
+            </div>
+            {confirmRotate && (
+              <div className="note warn2" style={{ marginTop: 10 }}>
+                Прежняя ссылка перестанет работать у всех, кому вы её отправляли.
+                <div className="rsvp" style={{ padding: "10px 0 0" }}>
+                  <button className="maybe" onClick={() => setConfirmRotate(false)}>Отмена</button>
+                  <button className="declined on" onClick={rotate}>Поменять</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {error && <div className="note warn2">{error}</div>}
 
         {group.my_role === "owner" && (
@@ -259,19 +301,7 @@ export function GroupsView({ groups, meId, onChanged }: Props) {
           )
         )}
 
-        {iAmBoss && (
-          <div className="rsvp" style={{ padding: "14px 0 0" }}>
-            <button className="maybe" onClick={link} disabled={busy}>Ссылка-приглашение</button>
-            {invite && (
-              <button
-                className="maybe"
-                onClick={() => shareLink(invite, `Присоединяйтесь к группе «${group.title}» в Meeto`)}
-              >
-                Поделиться
-              </button>
-            )}
-          </div>
-        )}
+
       </div>
 
       {group.my_role !== "owner" && (

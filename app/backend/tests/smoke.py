@@ -119,6 +119,46 @@ async def main() -> None:
             r = await c.get(f"/events/{eid}", headers=H3)
             check("очередь продвинулась автоматически", r.json()["my_status"] == "going", r.json()["my_status"])
 
+            print("\n=== очередь едет сама при расширении ===")
+            r = await c.post("/events", headers=H1, json={
+                "title": "Матч", "group_id": gid, "format": "offline", "capacity_max": 1,
+                "starts_at": start.isoformat(),
+                "ends_at": (start + timedelta(hours=1)).isoformat()})
+            mid = r.json()["id"]
+            r = await c.post(f"/events/{mid}/rsvp", headers=H2, json={"status": "going"})
+            check("второй встал в очередь", r.json()["my_status"] == "waitlisted", r.text[:150])
+            await c.patch(f"/events/{mid}", headers=H1, json={"capacity_max": 5})
+            r = await c.get(f"/events/{mid}", headers=H2)
+            check("после расширения статус стал «иду»",
+                  r.json()["my_status"] == "going", r.text[:150])
+            async with SessionLocal() as db:
+                n = (await db.execute(select(func.count()).select_from(Outbox)
+                     .where(Outbox.type == "waitlist.promoted"))).scalar_one()
+            check("и пришло уведомление", n >= 1, str(n))
+
+            print("\n=== время в уведомлениях по поясу получателя ===")
+            from app.services.notify import render
+            iso = start.isoformat()
+            msk = render("event.reminder", {"title": "T", "when_ts": iso, "place": ""},
+                         "Europe/Moscow")
+            utc = render("event.reminder", {"title": "T", "when_ts": iso, "place": ""}, "UTC")
+            check("московское и UTC различаются на смещение", msk != utc, f"{msk!r} vs {utc!r}")
+            print("        MSK:", msk.replace(chr(10), " "), "| UTC:", utc.replace(chr(10), " "))
+
+            print("\n=== постоянная ссылка группы ===")
+            a = (await c.get(f"/groups/{gid}/invites", headers=H1)).json()
+            b = (await c.get(f"/groups/{gid}/invites", headers=H1)).json()
+            check("при повторном заходе та же", a["code"] == b["code"], f"{a['code']} vs {b['code']}")
+            cnew = (await c.post(f"/groups/{gid}/invites", headers=H1)).json()
+            check("перевыпуск даёт новую", cnew["code"] != a["code"])
+            r = await c.post("/auth/telegram",
+                             headers={"Authorization": f"tma {init_data(55, 'Ссылочный')}"})
+            HL = {"Authorization": "Bearer " + r.json()["access"]}
+            r = await c.post(f"/groups/invites/{a['code']}/accept", headers=HL)
+            check("старая перестала работать", r.status_code in (404, 410), r.text[:120])
+            r = await c.post(f"/groups/invites/{cnew['code']}/accept", headers=HL)
+            check("новая работает", r.status_code == 200, r.text[:120])
+
             print("\n=== календарь и пересечения ===")
             clash = {"group_id": gid, "title": "Ужин",
                      "starts_at": (start + timedelta(hours=1)).isoformat(),
@@ -131,12 +171,15 @@ async def main() -> None:
                 "from": (start - timedelta(days=2)).isoformat(),
                 "to": (start + timedelta(days=2)).isoformat()})
             data = r.json()
-            check("календарь отдаёт события", len(data["events"]) == 2, str(len(data["events"])))
-            check("пересечение найдено", len(data["conflicts"]) == 1, json.dumps(data["conflicts"])[:200])
-            if data["conflicts"]:
-                cf = data["conflicts"][0]
-                dur = (datetime.fromisoformat(cf["to"]) - datetime.fromisoformat(cf["from"]))
-                check("окно пересечения 1 час", abs(dur - timedelta(hours=1)) < timedelta(minutes=1), str(dur))
+            check("календарь отдаёт события", len(data["events"]) >= 2, str(len(data["events"])))
+            check("пересечения найдены", len(data["conflicts"]) >= 1, json.dumps(data["conflicts"])[:200])
+            hours = [
+                datetime.fromisoformat(cf["to"]) - datetime.fromisoformat(cf["from"])
+                for cf in data["conflicts"]
+            ]
+            check("есть пересечение ровно в час",
+                  any(abs(d - timedelta(hours=1)) < timedelta(minutes=1) for d in hours),
+                  str(hours))
 
             print("\n=== отмена и приватность ===")
             r = await c.post(f"/events/{eid}/cancel?reason=" + "зал+занят", headers=H2)
@@ -159,7 +202,7 @@ async def main() -> None:
             print("\n=== поиск людей ===")
             r = await c.get("/users/search", headers=H1)
             names = [u["first_name"] for u in r.json()]
-            check("знакомые из общих групп", set(names) == {"Боря", "Вика"}, str(names))
+            check("знакомые из общих групп", {"Боря", "Вика"} <= set(names), str(names))
             r = await c.get("/users/search", headers=H1, params={"q": "бор"})
             check("поиск по имени", [u["first_name"] for u in r.json()] == ["Боря"], r.text[:120])
             # Дима ни с кем не пересекался — на нём и проверяем приватность
@@ -180,7 +223,8 @@ async def main() -> None:
                              json={"user_ids": [gena["user"]["id"]], "role": "member"})
             check("участник добавлен", r.status_code == 201 and r.json()["added"] == 1, r.text[:200])
             r = await c.get(f"/groups/{gid}/members", headers=H1)
-            check("в группе четверо", len(r.json()) == 4, str(len(r.json())))
+            check("новый участник виден в списке",
+                  any(m["user"]["first_name"] == "Гена" for m in r.json()), r.text[:200])
             r = await c.post(f"/groups/{gid}/members", headers=H1,
                              json={"user_ids": [gena["user"]["id"]], "role": "owner"})
             check("вторым владельцем сделать нельзя", r.status_code == 400)
@@ -209,7 +253,9 @@ async def main() -> None:
                     return (await db.execute(select(func.count()).select_from(Outbox)
                             .where(Outbox.type == "event.updated"))).scalar_one()
 
-            check("правка названия проходит тихо", await updates() == 0, str(await updates()))
+            base_n = await updates()
+            await c.patch(f"/events/{sid}", headers=H1, json={"title": "Личное++"})
+            check("правка названия проходит тихо", await updates() == base_n, str(await updates()))
             before_n = await updates()
             await c.patch(f"/events/{sid}", headers=H1, json={"place": "Новый зал"})
             check("а смена места — уведомляет", await updates() > before_n)

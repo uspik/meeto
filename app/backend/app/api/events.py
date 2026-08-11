@@ -35,9 +35,13 @@ def aware(dt: datetime) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-def fmt_when(ev: Event) -> str:
-    end = f"–{ev.ends_at:%H:%M}" if ev.ends_at else ""
-    return f"{ev.starts_at:%d.%m} в {ev.starts_at:%H:%M}{end}"
+def when_of(ev: Event) -> str:
+    """ISO-время начала: в текст его превратит воркер, уже в поясе получателя.
+
+    Раньше время форматировалось здесь, в UTC, и человек получал «в 16:00»
+    для мероприятия, которое у него начинается в 19:00.
+    """
+    return aware(ev.starts_at).isoformat()
 
 
 async def my_part(db: AsyncSession, event_id: UUID, user_id: UUID) -> Participant | None:
@@ -147,7 +151,7 @@ async def create(body: EventIn, me: User = Depends(current_user), db: AsyncSessi
                 continue
             db.add(Participant(event_id=ev.id, user_id=uid_, status=RsvpStatus.invited))
             await enqueue(db, uid_, "event.invited",
-                          {"title": ev.title, "when": fmt_when(ev),
+                          {"title": ev.title, "when_ts": when_of(ev),
                            "place": f"\n\U0001f4cd {ev.place}" if ev.place else "",
                            "event_id": str(ev.id)},
                           dedup_key=f"invited:{ev.id}:{uid_}")
@@ -194,6 +198,12 @@ async def edit(
     for key, val in incoming.items():
         setattr(ev, key, val)
 
+    # Стало больше мест — двигаем очередь, не дожидаясь чужого отказа
+    if "capacity_max" in really_changed:
+        for cand in await svc.promote_waitlist(db, ev):
+            await enqueue(db, cand.user_id, "waitlist.promoted",
+                          {"title": ev.title, "when_ts": when_of(ev), "event_id": str(ev.id)})
+
     # Беспокоим людей только тем, что влияет на решение идти или нет.
     if really_changed & SIGNIFICANT:
         rows = (await db.execute(
@@ -202,7 +212,7 @@ async def edit(
         for pt in rows:
             if pt.user_id != me.id:
                 await enqueue(db, pt.user_id, "event.updated",
-                              {"title": ev.title, "when": fmt_when(ev),
+                              {"title": ev.title, "when_ts": when_of(ev),
                                "place": f"\n\U0001f4cd {ev.place}" if ev.place else "",
                                "event_id": str(ev.id)})
     await db.commit()
@@ -284,7 +294,7 @@ async def invite(
         db.add(part)
         added.append(part)
         await enqueue(db, uid_, "event.invited",
-                      {"title": ev.title, "when": fmt_when(ev),
+                      {"title": ev.title, "when_ts": when_of(ev),
                        "place": f"\n\U0001f4cd {ev.place}" if ev.place else "",
                        "event_id": str(ev.id)},
                       dedup_key=f"invited:{ev.id}:{uid_}")
@@ -333,7 +343,7 @@ async def rsvp(
     if was is RsvpStatus.going and now is not RsvpStatus.going:
         for cand in await svc.promote_waitlist(db, ev):
             await enqueue(db, cand.user_id, "waitlist.promoted",
-                          {"title": ev.title, "when": fmt_when(ev), "event_id": str(ev.id)})
+                          {"title": ev.title, "when_ts": when_of(ev), "event_id": str(ev.id)})
 
     # Поштучных уведомлений организатору о каждом ответе больше нет:
     # на мероприятии в двадцать человек это превращалось в спам.

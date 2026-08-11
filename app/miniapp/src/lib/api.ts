@@ -93,7 +93,8 @@ export const api = {
   groupPending: (id: string) => raw<string[]>(`/groups/${id}/pending`),
   cancelPending: (id: string, username: string) =>
     raw<void>(`/groups/${id}/pending/${username}`, { method: "DELETE" }),
-  invite: (id: string) =>
+  invite: (id: string) => raw<{ code: string; url: string }>(`/groups/${id}/invites`),
+  rotateInvite: (id: string) =>
     raw<{ code: string; url: string }>(`/groups/${id}/invites`, { method: "POST" }),
   acceptInvite: (code: string) =>
     raw<Group>(`/groups/invites/${code}/accept`, { method: "POST" }),

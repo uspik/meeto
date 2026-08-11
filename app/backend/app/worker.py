@@ -39,7 +39,7 @@ async def send_due(bot: Bot) -> None:
                 item.state = "cancelled"
                 continue
             try:
-                await bot.send_message(user.tg_id, render(item.type, item.payload))
+                await bot.send_message(user.tg_id, render(item.type, item.payload, user.timezone))
                 item.state, item.sent_at = "sent", datetime.now(timezone.utc)
             except TelegramRetryAfter as exc:
                 item.scheduled_at = now + timedelta(seconds=exc.retry_after)
@@ -77,7 +77,7 @@ async def plan_reminders() -> None:
                 await enqueue(
                     db, pt.user_id, "event.reminder",
                     {"title": ev.title,
-                     "when": f"{ev.starts_at:%d.%m в %H:%M}",
+                     "when_ts": ev.starts_at.isoformat(),
                      "place": f"\n\U0001f4cd {ev.place}" if ev.place else "",
                      "event_id": str(ev.id)},
                     scheduled_at=when, dedup_key=f"reminder:{ev.id}:{pt.user_id}:{lead}",

@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,11 +22,36 @@ TEMPLATES = {
 }
 
 
-def render(kind: str, payload: dict) -> str:
+def local(iso: str | None, tz_name: str) -> str:
+    """Время в часовом поясе получателя.
+
+    Внутри всё хранится и передаётся в UTC. Если подставить его в текст как
+    есть, человек получит «в 16:00» для мероприятия, которое начинается
+    в 19:00 по его часам — именно так и было.
+    """
+    if not iso:
+        return ""
+    try:
+        moment = datetime.fromisoformat(iso)
+    except ValueError:
+        return ""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    try:
+        zone = ZoneInfo(tz_name or "UTC")
+    except (ZoneInfoNotFoundError, ValueError):
+        zone = timezone.utc
+    return f"{moment.astimezone(zone):%d.%m в %H:%M}"
+
+
+def render(kind: str, payload: dict, tz_name: str = "UTC") -> str:
     tpl = TEMPLATES.get(kind)
     if not tpl:
         return payload.get("text", "")
     safe = {k: (v if v is not None else "") for k, v in payload.items()}
+    # время подставляем уже в поясе получателя
+    if "when_ts" in payload:
+        safe["when"] = local(payload.get("when_ts"), tz_name)
     try:
         return tpl.format(**safe)
     except KeyError:

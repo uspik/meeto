@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { EventRow } from "../components/EventRow";
 import { BottomBar } from "../components/BottomBar";
 import { Icon } from "../components/Icon";
-import { MN, WD, mondayOf, plural, sameDay } from "../lib/date";
+import { MN, WD, dstr, mondayOf, plural, sameDay } from "../lib/date";
 import { onDay } from "../lib/conflicts";
 import type { Event } from "../lib/types";
 
@@ -26,7 +26,13 @@ export function MonthView(p: Props) {
   useEffect(() => {
     if (firstPaint) { setFirstPaint(false); return; }
     const sc = scroller.current, st = strip.current;
-    if (sc && st) sc.scrollTo({ top: Math.max(0, st.offsetTop - 10), behavior: "smooth" });
+    if (!sc || !st) return;
+    // подтягиваем список, только если он не виден целиком — иначе экран
+    // дёргается на каждом нажатии по дате
+    const target = Math.max(0, st.offsetTop - 10);
+    if (Math.abs(sc.scrollTop - target) > 24) {
+      sc.scrollTo({ top: target, behavior: "smooth" });
+    }
   }, [p.selected.getTime()]);
 
   const first = new Date(p.cursor.getFullYear(), p.cursor.getMonth(), 1);
@@ -75,7 +81,9 @@ export function MonthView(p: Props) {
           ))}
         </div>
         <div className="mdiv" />
-        <div id="strip" ref={strip}>
+        {/* key по дате: содержимое пересоздаётся и проявляется плавно,
+            а min-height в стилях не даёт странице скакать */}
+        <div id="strip" className="swap" key={dstr(p.selected)} ref={strip}>
           <div className={`daysep ${sameDay(p.selected, p.today) ? "now-sep" : ""}`}>
             {sameDay(p.selected, p.today) ? "Сегодня · " : ""}
             {p.selected.getDate()} {MN[p.selected.getMonth()]}

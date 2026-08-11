@@ -184,21 +184,57 @@ async def transfer(
     await db.commit()
 
 
+def invite_url(code: str) -> str:
+    # Прямая ссылка на главный Mini App бота. Формат /app?startapp= требует
+    # отдельно созданного через /newapp приложения, иначе Telegram отвечает
+    # «Bot application not found».
+    return f"https://t.me/{settings.bot_username}?startapp=g_{code}"
+
+
+async def active_invite(db: AsyncSession, group_id: UUID) -> GroupInvite | None:
+    res = await db.execute(
+        select(GroupInvite)
+        .where(GroupInvite.group_id == group_id, GroupInvite.revoked_at.is_(None))
+        .order_by(GroupInvite.created_at.desc())
+    )
+    return res.scalars().first()
+
+
+@router.get("/{group_id}/invites", response_model=InviteOut)
+async def current_invite(
+    group_id: UUID, me: User = Depends(current_user), db: AsyncSession = Depends(get_db)
+):
+    """Постоянная ссылка группы.
+
+    Отдаём одну и ту же при каждом заходе — раньше кнопка выпускала новый код,
+    и разосланные приглашения тихо копились.
+    """
+    await require_group(db, group_id, me, "members.invite")
+    invite = await active_invite(db, group_id)
+    if invite is None:
+        invite = GroupInvite(code=secrets.token_urlsafe(9), group_id=group_id, created_by=me.id)
+        db.add(invite)
+        await db.commit()
+    return InviteOut(code=invite.code, url=invite_url(invite.code),
+                     expires_at=invite.expires_at, max_uses=invite.max_uses)
+
+
 @router.post("/{group_id}/invites", response_model=InviteOut, status_code=201)
 async def make_invite(
     group_id: UUID, max_uses: int | None = None, expires_at: datetime | None = None,
     me: User = Depends(current_user), db: AsyncSession = Depends(get_db),
 ):
+    """Перевыпуск: прежняя ссылка перестаёт работать."""
     await require_group(db, group_id, me, "members.invite")
+    old = await active_invite(db, group_id)
+    if old is not None:
+        old.revoked_at = datetime.now(timezone.utc)
     code = secrets.token_urlsafe(9)
     db.add(GroupInvite(code=code, group_id=group_id, created_by=me.id,
                        max_uses=max_uses, expires_at=expires_at))
     await db.commit()
-    # Прямая ссылка на главный Mini App бота. Формат /app?startapp= требует
-    # отдельно созданного через /newapp приложения с коротким именем "app",
-    # иначе Telegram отвечает «Bot application not found».
-    url = f"https://t.me/{settings.bot_username}?startapp=g_{code}"
-    return InviteOut(code=code, url=url, expires_at=expires_at, max_uses=max_uses)
+    return InviteOut(code=code, url=invite_url(code),
+                     expires_at=expires_at, max_uses=max_uses)
 
 
 @router.get("/{group_id}/pending", response_model=list[str])
