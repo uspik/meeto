@@ -41,11 +41,11 @@ body{background:var(--bg);color:var(--text);
 
 .seg{position:relative;display:flex;margin:2px 16px 10px;padding:3px;background:var(--bg2);
   border-radius:12px}
-.seg .pill{position:absolute;top:3px;bottom:3px;width:calc((100% - 6px)/3);background:var(--card);
+.seg .pill{position:absolute;top:3px;bottom:3px;width:calc((100% - 6px)/var(--tabs,3));background:var(--card);
   border-radius:9px;box-shadow:0 1px 3px rgba(0,0,0,.13);
   transition:transform .3s cubic-bezier(.32,.72,0,1)}
 .seg button{position:relative;z-index:2;flex:1;border:none;background:transparent;color:var(--hint);
-  font-size:13.5px;font-weight:640;padding:7px 0;cursor:pointer;transition:color .2s}
+  font-size:12.5px;font-weight:640;padding:7px 0;cursor:pointer;transition:color .2s}
 .seg button.on{color:var(--text)}
 
 .filters{display:flex;gap:7px;padding:0 16px 10px}
@@ -566,3 +566,49 @@ html.theming,body.theming,body.theming *{
    но выравниваем тайминг с остальными шторками */
 .pop.on .pop-in{animation:sheetInPlain .3s cubic-bezier(.32,.72,0,1) both}
 @keyframes sheetInPlain{from{transform:translateY(26px)}to{transform:none}}
+
+
+/* ============ Люди и группы ============ */
+.picked{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.pchip{border:none;background:color-mix(in srgb,var(--link) 14%,transparent);color:var(--text);
+  border-radius:14px;padding:5px 10px;font-size:12.5px;font-weight:600;cursor:pointer;
+  display:inline-flex;align-items:center;gap:6px}
+.pchip i{font-style:normal;color:var(--hint);font-size:11px}
+
+.prow{display:flex;gap:12px;align-items:center;padding:9px 2px;cursor:pointer;
+  border-bottom:1px solid var(--sep);transition:background .15s}
+.prow:active{background:var(--bg2)}
+.prow .meta{flex:1;min-width:0}
+.prow .rt{font-size:14.5px}
+.prow .rt em{font-style:normal;font-weight:640;color:var(--text)}
+.prow .rs{font-size:12px;color:var(--hint);margin-top:2px}
+.pcheck{width:22px;height:22px;border-radius:50%;border:1.5px solid var(--sep);flex:0 0 auto;
+  display:grid;place-items:center;font-size:12px;color:#fff;transition:.18s}
+.prow.on .pcheck{background:var(--link);border-color:var(--link)}
+
+.pav,.gav{width:40px;height:40px;border-radius:50%;flex:0 0 auto;display:grid;place-items:center;
+  font-size:15px;font-weight:650;color:#fff;background-size:cover;background-position:center;
+  background-color:var(--neutral)}
+.gav.lg{width:52px;height:52px;font-size:20px}
+
+.gtop{padding:2px 0 10px}
+.ghead{display:flex;gap:13px;align-items:center;padding:0 0 14px;border-bottom:1px solid var(--sep);
+  margin-bottom:10px}
+.ghead .ttl{font-size:18px;font-weight:700;letter-spacing:-.2px}
+.ghead .sub{font-size:12.5px;color:var(--hint);margin-top:3px}
+
+.rolesel{border:1px solid var(--sep);background:var(--bg2);color:var(--text);border-radius:10px;
+  padding:6px 8px;font-size:12px;font-family:inherit;cursor:pointer}
+
+/* отметка «Завершено» — рядом со статусом посещения, а не вместо него */
+.done-badge{font-size:10px;font-weight:700;padding:2.5px 7px;border-radius:7px;white-space:nowrap;
+  background:var(--bg2);color:var(--hint)}
+.row.is-past .ico i{filter:grayscale(.55) opacity(.75)}
+
+/* селектор группы в строке фильтров */
+.chip.gsel{-webkit-appearance:none;appearance:none;font-family:inherit;max-width:150px;
+  padding-right:22px;background-image:linear-gradient(45deg,transparent 50%,var(--hint) 50%),
+  linear-gradient(135deg,var(--hint) 50%,transparent 50%);
+  background-position:calc(100% - 12px) 12px,calc(100% - 8px) 12px;
+  background-size:4px 4px,4px 4px;background-repeat:no-repeat}
+.plate:disabled{opacity:.7;cursor:default}

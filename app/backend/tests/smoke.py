@@ -40,6 +40,10 @@ async def main() -> None:
         if cond: ok += 1; print(f"  ok   {label}")
         else:    fail += 1; print(f"  FAIL {label} {extra}")
 
+    from app.db import SessionLocal
+    from app.models import Outbox
+    from sqlalchemy import func, select
+
     async with app.router.lifespan_context(app):
         tr = ASGITransport(app=app)
         async with AsyncClient(transport=tr, base_url="http://t/api/v1") as c:
@@ -151,6 +155,78 @@ async def main() -> None:
             await c.post(f"/events/{oid}/rsvp", headers=H3, json={"status": "going"})
             r = await c.get(f"/events/{oid}", headers=H3)
             check("после «Иду» ссылка видна", r.json()["online_url"] == "https://meet.example/x")
+
+            print("\n=== поиск людей ===")
+            r = await c.get("/users/search", headers=H1)
+            names = [u["first_name"] for u in r.json()]
+            check("знакомые из общих групп", set(names) == {"Боря", "Вика"}, str(names))
+            r = await c.get("/users/search", headers=H1, params={"q": "бор"})
+            check("поиск по имени", [u["first_name"] for u in r.json()] == ["Боря"], r.text[:120])
+            # Дима ни с кем не пересекался — на нём и проверяем приватность
+            r = await c.post("/auth/telegram",
+                             headers={"Authorization": f"tma {init_data(9, 'Дима')}"})
+            H9 = {"Authorization": "Bearer " + r.json()["access"]}
+            r = await c.get("/users/search", headers=H9)
+            check("у новичка список знакомых пуст", r.json() == [], r.text[:120])
+            r = await c.get("/users/search", headers=H9, params={"q": "ан"})
+            check("чужих по части имени не находит", r.json() == [], r.text[:150])
+            r = await c.get("/users/search", headers=H9, params={"q": "@аня"})
+            check("но по точному @username находит", len(r.json()) == 1, r.text[:150])
+
+            print("\n=== добавление в группу списком ===")
+            r = await c.post("/auth/telegram", headers={"Authorization": f"tma {init_data(4, 'Гена')}"})
+            gena = r.json(); H4 = {"Authorization": "Bearer " + gena["access"]}
+            r = await c.post(f"/groups/{gid}/members", headers=H1,
+                             json={"user_ids": [gena["user"]["id"]], "role": "member"})
+            check("участник добавлен", r.status_code == 201, r.text[:200])
+            r = await c.get(f"/groups/{gid}/members", headers=H1)
+            check("в группе четверо", len(r.json()) == 4, str(len(r.json())))
+            r = await c.post(f"/groups/{gid}/members", headers=H1,
+                             json={"user_ids": [gena["user"]["id"]], "role": "owner"})
+            check("вторым владельцем сделать нельзя", r.status_code == 400)
+
+            print("\n=== гости вне группы ===")
+            solo = {"title": "Личное", "starts_at": start.isoformat(),
+                    "ends_at": (start + timedelta(hours=1)).isoformat(), "format": "online"}
+            r = await c.post("/events", headers=H1, json=solo)
+            sid = r.json()["id"]
+            r = await c.post(f"/events/{sid}/invite", headers=H1,
+                             json={"user_ids": [borya["user"]["id"]]})
+            check("гость приглашён на личное мероприятие", r.status_code == 201, r.text[:200])
+            r = await c.get(f"/events/{sid}", headers=H2)
+            check("гость видит мероприятие", r.json()["my_status"] == "invited")
+            r = await c.get("/groups", headers=H2)
+            check("но в группу не попал", all(g["id"] != sid for g in r.json()))
+
+            print("\n=== редактирование ===")
+            r = await c.patch(f"/events/{sid}", headers=H1, json={"title": "Личное+"})
+            check("автор редактирует", r.status_code == 200 and r.json()["title"] == "Личное+")
+            r = await c.patch(f"/events/{sid}", headers=H2, json={"title": "чужое"})
+            check("посторонний не редактирует", r.status_code == 403)
+            async with SessionLocal() as db:
+                n = (await db.execute(select(func.count()).select_from(Outbox)
+                     .where(Outbox.type == "event.updated"))).scalar_one()
+            check("участникам ушло уведомление о правке", n >= 1, str(n))
+
+            print("\n=== завершённое мероприятие ===")
+            past = {"title": "Вчера", "format": "online",
+                    "starts_at": (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat(),
+                    "ends_at": (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()}
+            r = await c.post("/events", headers=H1, json=past)
+            pid = r.json()["id"]
+            check("отмечено как прошедшее", r.json()["is_past"] is True, r.text[:200])
+            check("ответ закрыт", r.json()["can_rsvp"] is False)
+            check("статус посещения сохранён", r.json()["my_status"] == "going")
+            r = await c.post(f"/events/{pid}/rsvp", headers=H1, json={"status": "declined"})
+            check("сменить ответ нельзя", r.status_code == 409, r.text[:120])
+            r = await c.patch(f"/events/{pid}", headers=H1, json={"title": "нельзя"})
+            check("редактировать нельзя", r.status_code == 409, r.text[:120])
+
+            print("\n=== организатор всегда идёт ===")
+            r = await c.get(f"/events/{oid}", headers=H1)
+            check("автору ответ заблокирован", r.json()["can_rsvp"] is False, r.text[:150])
+            r = await c.post(f"/events/{oid}/rsvp", headers=H1, json={"status": "declined"})
+            check("автор не может отказаться", r.status_code == 409)
 
             print("\n=== аутбокс уведомлений ===")
             from app.db import SessionLocal

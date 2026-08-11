@@ -10,7 +10,7 @@ from ..config import settings
 from ..db import get_db
 from ..deps import current_user, is_owner, membership, require_group
 from ..models import Group, GroupInvite, GroupMember, GroupRole, User
-from ..schemas import GroupIn, GroupOut, InviteOut, MemberOut
+from ..schemas import GroupIn, GroupOut, InviteOut, MemberOut, MembersIn
 from ..services.notify import enqueue
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -84,6 +84,36 @@ async def members(group_id: UUID, me: User = Depends(current_user), db: AsyncSes
     return list(res.scalars().all())
 
 
+UI_ROLES = {GroupRole.owner, GroupRole.admin, GroupRole.member}
+
+
+@router.post("/{group_id}/members", response_model=list[MemberOut], status_code=201)
+async def add_members(
+    group_id: UUID, body: MembersIn,
+    me: User = Depends(current_user), db: AsyncSession = Depends(get_db),
+):
+    """Добавить людей в группу — как при создании чата в Telegram."""
+    group, _ = await require_group(db, group_id, me, "members.invite")
+    if body.role not in UI_ROLES or body.role is GroupRole.owner:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "недопустимая роль")
+
+    added: list[GroupMember] = []
+    for uid_ in body.user_ids:
+        if await membership(db, group_id, uid_) is not None:
+            continue
+        if await db.get(User, uid_) is None:
+            continue
+        member = GroupMember(group_id=group_id, user_id=uid_, role=body.role, invited_by=me.id)
+        db.add(member)
+        added.append(member)
+        await enqueue(db, uid_, "group.invited", {"title": group.title, "who": me.display_name},
+                      dedup_key=f"group-add:{group_id}:{uid_}")
+    await db.commit()
+    for m in added:
+        await db.refresh(m)
+    return added
+
+
 @router.patch("/{group_id}/members/{user_id}", response_model=MemberOut)
 async def set_role(
     group_id: UUID, user_id: UUID, role: GroupRole,
@@ -97,6 +127,8 @@ async def set_role(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "нельзя понизить владельца")
     if role is GroupRole.owner:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "владение передаётся отдельной ручкой")
+    if role not in UI_ROLES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "недопустимая роль")
     # админ не трогает других админов
     if not is_owner(member) and target.role is GroupRole.admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "только владелец меняет админов")

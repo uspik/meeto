@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { DatePicker, NumberPicker, Plate, TimePicker } from "../components/Pickers";
+import { PeoplePicker } from "../components/PeoplePicker";
 import { useSheet } from "../lib/useSheet";
 import { MN, WD, dstr, hm } from "../lib/date";
 import { api } from "../lib/api";
 import { haptic } from "../lib/tg";
-import type { Event, EventFormat, Group } from "../lib/types";
+import type { Event, EventFormat, Group, User } from "../lib/types";
 
 const STEPS = ["Основное", "Когда", "Где", "Места"];
 const EMOJI = ["🎯", "🏐", "🏃", "🎂", "🍽️", "🎬", "🎲", "💻", "📚", "⛰️"];
@@ -25,11 +26,17 @@ interface Draft {
 }
 
 interface Props {
-  groups: Group[]; day: Date; existing: Event[];
-  onClose(): void; onCreated(e: Event): void;
+  groups: Group[];
+  day: Date;
+  existing: Event[];
+  /** если передано — режим редактирования: группу менять нельзя */
+  edit?: Event | null;
+  onClose(): void;
+  onCreated(e: Event): void;
 }
 
-export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
+export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Props) {
+  const editing = Boolean(edit);
   const { close, cls } = useSheet(onClose);
   const [step, setStep] = useState(0);
   // направление въезда шага; сбрасывается после проигрыша анимации
@@ -38,12 +45,30 @@ export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [groupOpen, setGroupOpen] = useState(false);
-  const [d, setD] = useState<Draft>({
-    emoji: "🎯", cover: GRADIENTS[0], title: "", description: "",
-    groupId: groups[0]?.id ?? null,
-    date: dstr(day), time: "19:00", dur: 120,
-    format: "offline", place: "", url: "",
-    capOn: false, capacity: 12, quorumOn: false, quorum: 6, qtime: "20:00",
+  const [guests, setGuests] = useState<User[]>([]);
+  const [people, setPeople] = useState(false);
+  const [d, setD] = useState<Draft>(() => {
+    if (!edit) {
+      return {
+        emoji: "🎯", cover: GRADIENTS[0], title: "", description: "",
+        groupId: groups[0]?.id ?? null,
+        date: dstr(day), time: "19:00", dur: 120,
+        format: "offline", place: "", url: "",
+        capOn: false, capacity: 12, quorumOn: false, quorum: 6, qtime: "20:00",
+      };
+    }
+    const s0 = new Date(edit.starts_at);
+    const e0 = edit.ends_at ? new Date(edit.ends_at) : new Date(s0.getTime() + 3600_000);
+    return {
+      emoji: edit.emoji, cover: edit.cover, title: edit.title,
+      description: edit.description ?? "", groupId: edit.group_id ?? null,
+      date: dstr(s0), time: hm(s0),
+      dur: Math.max(15, Math.round((+e0 - +s0) / 60_000)),
+      format: edit.format, place: edit.place ?? "", url: edit.online_url ?? "",
+      capOn: edit.capacity_max != null, capacity: edit.capacity_max ?? 12,
+      quorumOn: edit.quorum_min != null, quorum: edit.quorum_min ?? 6,
+      qtime: edit.quorum_deadline ? hm(new Date(edit.quorum_deadline)) : "20:00",
+    };
   });
 
   const patch = (v: Partial<Draft>) => setD((prev) => ({ ...prev, ...v }));
@@ -98,8 +123,8 @@ export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
       const [qh, qm] = d.qtime.split(":").map(Number);
       const qd = new Date(start);
       qd.setHours(qh, qm, 0, 0);
-      const created = await api.createEvent({
-        group_id: d.groupId,
+
+      const payload = {
         title: d.title.trim(),
         description: d.description || null,
         emoji: d.emoji,
@@ -112,8 +137,16 @@ export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
         capacity_max: d.capOn ? d.capacity : null,
         quorum_min: d.quorumOn ? d.quorum : null,
         quorum_deadline: d.quorumOn ? qd.toISOString() : null,
-      });
-      onCreated(created);
+      };
+
+      // группу при редактировании не отправляем: переносить мероприятие
+      // между группами нельзя, у людей уже есть ответы
+      const saved = edit
+        ? await api.updateEvent(edit.id, payload)
+        : await api.createEvent({ ...payload, group_id: d.groupId });
+
+      if (guests.length) await api.inviteToEvent(saved.id, guests.map((u) => u.id));
+      onCreated(saved);
     } catch (e) {
       setError(e instanceof Error ? e.message : "не удалось создать");
     } finally {
@@ -129,7 +162,7 @@ export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
       <div className={`wz on ${cls}`}>
         <div className="wz-hd">
           <div className="wz-top">
-            <h3>{STEPS[step]}</h3>
+            <h3>{editing ? `${STEPS[step]} · правка` : STEPS[step]}</h3>
             <small>шаг {step + 1} из {STEPS.length}</small>
             <button className="ib" onClick={close}>✕</button>
           </div>
@@ -181,9 +214,15 @@ export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
                 <div className="fld" style={{ position: "relative" }}>
                   <div className="lbl">Группа</div>
                   <button className={`plate ${groupOpen ? "open" : ""}`}
-                    onClick={() => setGroupOpen(!groupOpen)}>
-                    <span>{groupTitle}</span><i>▼</i>
+                    disabled={editing}
+                    onClick={() => !editing && setGroupOpen(!groupOpen)}>
+                    <span>{groupTitle}</span><i>{editing ? "" : "▼"}</i>
                   </button>
+                  {editing && (
+                    <div className="note" style={{ marginTop: 8 }}>
+                      Группу менять нельзя: у участников уже собраны ответы
+                    </div>
+                  )}
                   <div className={`pop-list ${groupOpen ? "open" : ""}`}>
                     <button className={`opt ${d.groupId === null ? "on" : ""}`}
                       onClick={() => { patch({ groupId: null }); setGroupOpen(false); }}>
@@ -336,6 +375,18 @@ export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
                     </div>
                   </div>
                 )}
+                <div className="tgl" style={{ borderTop: "1px solid var(--sep)" }}>
+                  <div className="tx">
+                    <b>Гости вне группы</b>
+                    <span>
+                      {guests.length
+                        ? guests.map((u) => u.first_name).join(", ")
+                        : "Позвать людей, не вступая ими в группу"}
+                    </span>
+                  </div>
+                  <button className="tb" onClick={() => setPeople(true)}>Выбрать</button>
+                </div>
+
                 {d.capOn && d.quorumOn && d.quorum > d.capacity && (
                   <div className="note warn2">Минимум больше числа мест — исправьте</div>
                 )}
@@ -344,6 +395,19 @@ export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
             )}
           </div>
         </div>
+
+        {people && (
+          <PeoplePicker
+            title="Кого позвать"
+            onClose={() => setPeople(false)}
+            onDone={(users) =>
+              setGuests((prev) => [
+                ...prev,
+                ...users.filter((u) => !prev.some((p) => p.id === u.id)),
+              ])
+            }
+          />
+        )}
 
         <DatePicker open={picker === "date"} value={d.date}
           onPick={(v) => patch({ date: v })} onClose={() => setPicker(null)} />
@@ -359,7 +423,9 @@ export function Wizard({ groups, day, existing, onClose, onCreated }: Props) {
         <div className="wz-ft">
           {step > 0 && <button className="back" onClick={() => go(-1)}>Назад</button>}
           <button className="go" disabled={!valid || busy} onClick={() => go(1)}>
-            {step === STEPS.length - 1 ? "Создать мероприятие" : "Далее"}
+            {step === STEPS.length - 1
+              ? (editing ? "Сохранить изменения" : "Создать мероприятие")
+              : "Далее"}
           </button>
         </div>
       </div>

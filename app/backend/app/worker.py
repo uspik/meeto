@@ -11,7 +11,7 @@ from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from .config import settings
 from .db import SessionLocal
@@ -126,6 +126,27 @@ async def resolve_quorum() -> None:
         await db.commit()
 
 
+async def close_past() -> None:
+    """Прошедшие мероприятия помечаем завершёнными.
+
+    Статус нужен явный: по нему закрывается смена ответа и редактирование,
+    а в интерфейсе появляется отметка «Завершено» рядом с ответом участника.
+    """
+    now = datetime.now(timezone.utc)
+    async with SessionLocal() as db:
+        evs = (await db.execute(
+            select(Event).where(
+                Event.status.in_([EventStatus.published, EventStatus.confirmed]),
+                func.coalesce(Event.ends_at, Event.starts_at) < now,
+            )
+        )).scalars().all()
+        for ev in evs:
+            ev.status = EventStatus.completed
+        if evs:
+            log.info("завершено мероприятий: %s", len(evs))
+        await db.commit()
+
+
 async def main() -> None:
     logging.basicConfig(level=settings.log_level)
     bot = Bot(settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -137,6 +158,7 @@ async def main() -> None:
             if tick % 60 == 0:  # раз в минуту
                 await plan_reminders()
                 await resolve_quorum()
+                await close_past()
         except Exception:  # noqa: BLE001
             log.exception("сбой в цикле воркера")
         tick += 1

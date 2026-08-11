@@ -13,9 +13,15 @@ const ANSWERS: [RsvpStatus, string][] = [
   ["going", "Иду"], ["maybe", "Под вопросом"], ["declined", "Не иду"],
 ];
 
-interface Props { event: Event; onClose(): void; onChanged(e: Event): void }
+interface Props {
+  event: Event;
+  onClose(): void;
+  onChanged(e: Event): void;
+  onEdit(e: Event): void;
+  onInvite(e: Event): void;
+}
 
-export function EventSheet({ event, onClose, onChanged }: Props) {
+export function EventSheet({ event, onClose, onChanged, onEdit, onInvite }: Props) {
   const { close, cls } = useSheet(onClose);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +54,12 @@ export function EventSheet({ event, onClose, onChanged }: Props) {
           <Icon event={event} size="xl" />
           <div style={{ flex: 1, minWidth: 0 }}>
             <h2>{event.title}</h2>
-            <p>{event.group_title ?? "Личное"} <StatusChip event={event} /></p>
+            <p>
+              {event.group_title ?? "Личное"} <StatusChip event={event} />
+              {event.is_past && event.status !== "cancelled" && (
+                <span className="done-badge">Завершено</span>
+              )}
+            </p>
           </div>
         </div>
 
@@ -125,17 +136,27 @@ export function EventSheet({ event, onClose, onChanged }: Props) {
             <button
               key={value}
               className={`${value} ${event.my_status === value ? "on" : ""}`}
-              disabled={busy || event.status === "cancelled"}
+              disabled={busy || !event.can_rsvp}
               onClick={() => answer(value)}
             >
               {label}
             </button>
           ))}
         </div>
+
+        {event.can_edit && (
+          <div className="rsvp" style={{ paddingTop: 8 }}>
+            <button className="maybe" onClick={() => onEdit(event)}>Редактировать</button>
+            <button className="maybe" onClick={() => onInvite(event)}>Позвать людей</button>
+          </div>
+        )}
+
         <div className="hint">
-          {error ?? (event.my_status === "waitlisted"
-            ? "Вы в листе ожидания — сообщим, когда место освободится"
-            : "Смена ответа сразу обновляет календарь")}
+          {error
+            ?? event.rsvp_locked_reason
+            ?? (event.my_status === "waitlisted"
+              ? "Вы в листе ожидания — сообщим, когда место освободится"
+              : "Смена ответа сразу обновляет календарь")}
         </div>
       </div>
     </>

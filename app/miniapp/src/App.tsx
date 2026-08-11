@@ -5,15 +5,18 @@ import { initTelegram, startParam } from "./lib/tg";
 import type { Event, Group, User } from "./lib/types";
 import { DayView } from "./views/DayView";
 import { EventSheet } from "./views/EventSheet";
-import { GroupsPage } from "./views/GroupsPage";
+import { GroupsView } from "./views/GroupsView";
 import { ListView, type Period } from "./views/ListView";
+import { PeoplePicker } from "./components/PeoplePicker";
 import { MonthView } from "./views/MonthView";
 import { Wizard } from "./views/Wizard";
 
-type View = "month" | "day" | "list";
+type View = "month" | "day" | "list" | "groups";
 type Filter = "all" | "going" | "away";
 
-const VIEWS: Record<View, string> = { month: "Месяц", day: "День", list: "Список" };
+const VIEWS: Record<View, string> = {
+  month: "Месяц", day: "День", list: "Список", groups: "Группы",
+};
 const FILTERS: Record<Filter, string> = { all: "Все", going: "Принято", away: "Не участвую" };
 
 export default function App() {
@@ -38,7 +41,9 @@ export default function App() {
 
   const [openEvent, setOpenEvent] = useState<Event | null>(null);
   const [wizard, setWizard] = useState(false);
-  const [groupsOpen, setGroupsOpen] = useState(false);
+  const [groupFilter, setGroupFilter] = useState<string | "all">("all");
+  const [inviteTo, setInviteTo] = useState<Event | null>(null);
+  const [editEvent, setEditEvent] = useState<Event | null>(null);
 
   const range = useMemo((): [Date, Date] => {
     if (view === "list") {
@@ -93,20 +98,22 @@ export default function App() {
   );
 
   const counts = useMemo(() => {
-    const scoped = events.filter((e) =>
-      view === "day" ? sameDay(new Date(e.starts_at), cursor) : inScope(e),
-    );
+    const scoped = events.filter((e) => {
+      if (groupFilter !== "all" && (e.group_id ?? "personal") !== groupFilter) return false;
+      return view === "day" ? sameDay(new Date(e.starts_at), cursor) : inScope(e);
+    });
     const going = scoped.filter((e) => e.my_status === "going" && e.status !== "cancelled").length;
     return { all: scoped.length, going, away: scoped.length - going };
-  }, [events, view, cursor, inScope]);
+  }, [events, view, cursor, inScope, groupFilter]);
 
   const visible = useMemo(
     () => events.filter((e) => {
+      if (groupFilter !== "all" && (e.group_id ?? "personal") !== groupFilter) return false;
       if (filter === "all") return true;
       const going = e.my_status === "going" && e.status !== "cancelled";
       return filter === "going" ? going : !going;
     }),
-    [events, filter],
+    [events, filter, groupFilter],
   );
 
   function shift(delta: number) {
@@ -171,7 +178,7 @@ export default function App() {
           <button className="ib" onClick={() => shift(1)}>›</button>
         </div>
 
-        <div className="seg">
+        <div className="seg" style={{ "--tabs": Object.keys(VIEWS).length } as React.CSSProperties}>
           <span className="pill" style={{
             transform: `translateX(${Object.keys(VIEWS).indexOf(view) * 100}%)`,
           }} />
@@ -190,7 +197,19 @@ export default function App() {
               {FILTERS[k]}<b>{counts[k]}</b>
             </button>
           ))}
-          <button className="chip" onClick={() => setGroupsOpen(true)}>Группы</button>
+          {groups.length > 0 && (
+            <select
+              className="chip gsel"
+              value={groupFilter}
+              onChange={(e) => setGroupFilter(e.target.value)}
+            >
+              <option value="all">Все группы</option>
+              <option value="personal">Личные</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>{g.title}</option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 
@@ -221,6 +240,9 @@ export default function App() {
               onCreate={() => setWizard(true)}
             />
           )}
+          {view === "groups" && (
+            <GroupsView groups={groups} onChanged={() => void reload()} />
+          )}
           {view === "list" && (
             <ListView
               events={visible.filter(inScope)} today={today} period={period}
@@ -235,25 +257,35 @@ export default function App() {
           event={openEvent}
           onClose={() => setOpenEvent(null)}
           onChanged={upsert}
+          onEdit={(e) => { setOpenEvent(null); setEditEvent(e); }}
+          onInvite={(e) => { setOpenEvent(null); setInviteTo(e); }}
         />
       )}
 
-      {wizard && (
-        <Wizard
-          groups={groups} day={view === "day" ? cursor : selected} existing={events}
-          onClose={() => setWizard(false)}
-          onCreated={(e) => {
-            upsert(e);
-            setWizard(false);
-            switchView("day", startOfDay(new Date(e.starts_at)));
+      {inviteTo && (
+        <PeoplePicker
+          title="Кого позвать"
+          onClose={() => setInviteTo(null)}
+          onDone={async (users) => {
+            await api.inviteToEvent(inviteTo.id, users.map((u) => u.id)).catch(() => undefined);
+            void reload();
           }}
         />
       )}
 
-      {groupsOpen && (
-        <GroupsPage
-          groups={groups} onClose={() => setGroupsOpen(false)}
-          onChanged={() => void reload()}
+      {(wizard || editEvent) && (
+        <Wizard
+          groups={groups}
+          day={view === "day" ? cursor : selected}
+          existing={events}
+          edit={editEvent}
+          onClose={() => { setWizard(false); setEditEvent(null); }}
+          onCreated={(e) => {
+            upsert(e);
+            setWizard(false);
+            setEditEvent(null);
+            switchView("day", startOfDay(new Date(e.starts_at)));
+          }}
         />
       )}
     </div>

@@ -1,5 +1,5 @@
 import { initData } from "./tg";
-import type { CalendarPayload, Event, Group, Member, User } from "./types";
+import type { CalendarPayload, Event, Group, GroupRole, Member, User } from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "/api/v1";
 
@@ -80,7 +80,28 @@ export const api = {
   acceptInvite: (code: string) =>
     raw<Group>(`/groups/invites/${code}/accept`, { method: "POST" }),
 
+  searchUsers: (q: string) =>
+    raw<User[]>(`/users/search?q=${encodeURIComponent(q)}`),
+  eventCandidates: (id: string) => raw<User[]>(`/users/of-event/${id}`),
+
+  addMembers: (groupId: string, userIds: string[], role: GroupRole = "member") =>
+    raw<Member[]>(`/groups/${groupId}/members`, {
+      method: "POST",
+      body: JSON.stringify({ user_ids: userIds, role }),
+    }),
+  setRole: (groupId: string, userId: string, role: GroupRole) =>
+    raw<Member>(`/groups/${groupId}/members/${userId}?role=${role}`, { method: "PATCH" }),
+  removeMember: (groupId: string, userId: string) =>
+    raw<void>(`/groups/${groupId}/members/${userId}`, { method: "DELETE" }),
+
   event: (id: string) => raw<Event>(`/events/${id}`),
+  updateEvent: (id: string, body: Record<string, unknown>) =>
+    raw<Event>(`/events/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  inviteToEvent: (id: string, userIds: string[]) =>
+    raw<unknown>(`/events/${id}/invite`, {
+      method: "POST",
+      body: JSON.stringify({ user_ids: userIds }),
+    }),
   createEvent: (body: Record<string, unknown>) =>
     raw<Event>("/events", { method: "POST", body: JSON.stringify(body) }),
   cancelEvent: (id: string, reason: string) =>

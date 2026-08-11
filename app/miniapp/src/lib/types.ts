@@ -41,6 +41,10 @@ export interface Event {
   my_status?: RsvpStatus | null;
   my_arrival?: string | null;
   can_edit: boolean;
+  /** мероприятие уже прошло: отметка «Завершено» ставится дополнительно */
+  is_past: boolean;
+  can_rsvp: boolean;
+  rsvp_locked_reason?: string | null;
 }
 
 export interface Conflict { from: string; to: string; event_ids: string[] }

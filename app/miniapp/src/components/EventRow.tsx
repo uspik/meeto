@@ -24,7 +24,7 @@ export function EventRow({ event, index, onOpen }: Props) {
 
   return (
     <div
-      className={`row s-${st} chip${index === undefined ? "" : " rise"}`}
+      className={`row s-${st} chip${event.is_past ? " is-past" : ""}${index === undefined ? "" : " rise"}`}
       style={index === undefined ? undefined : { animationDelay: `${index * 45}ms` }}
       onClick={() => onOpen(event)}
     >
@@ -40,6 +40,10 @@ export function EventRow({ event, index, onOpen }: Props) {
         </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
+        {/* «Завершено» дополняет ответ участника, а не заменяет его */}
+        {event.is_past && event.status !== "cancelled" && (
+          <span className="done-badge">Завершено</span>
+        )}
         {badges.map((b) => (
           <span key={b} className={b.startsWith("кворум") ? "badge b-q" : "badge b-s"}>{b}</span>
         ))}

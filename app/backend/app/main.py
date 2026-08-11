@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import auth, calendar, events, groups, me
+from .api import auth, calendar, events, groups, me, users
 from .config import settings
 from .db import init_db
 
@@ -27,7 +27,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for router in (auth.router, me.router, groups.router, events.router, calendar.router):
+for router in (auth.router, me.router, users.router, groups.router,
+               events.router, calendar.router):
     app.include_router(router, prefix="/api/v1")
 
 

@@ -9,11 +9,17 @@ from ..db import get_db
 from ..deps import current_user, membership, require_group
 from ..models import Event, EventStatus, GroupMember, Participant, RsvpStatus, User
 from ..permissions import can
-from ..schemas import EventIn, EventOut, EventPatch, ParticipantOut, RsvpIn
+from ..schemas import EventIn, EventOut, EventPatch, InviteUsersIn, ParticipantOut, RsvpIn
 from ..services import events as svc
 from ..services.notify import enqueue
 
 router = APIRouter(prefix="/events", tags=["events"])
+
+
+def aware(dt: datetime) -> datetime:
+    """SQLite отдаёт даты без зоны, Postgres — с зоной. Приводим к одному виду,
+    иначе сравнение падает с TypeError."""
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 def fmt_when(ev: Event) -> str:
@@ -38,6 +44,22 @@ async def to_out(db: AsyncSession, ev: Event, me: User, part: Participant | None
                                     ev.group.member_defaults if ev.group else None,
                                     mem.permissions_override))
     going = part is not None and part.status is RsvpStatus.going
+
+    # «Завершено» — это отдельная отметка, а не замена личному ответу:
+    # в интерфейсе она стоит рядом со статусом посещения.
+    now = datetime.now(timezone.utc)
+    end = aware(ev.ends_at or ev.starts_at)
+    is_past = ev.status is EventStatus.completed or end < now
+
+    reason = None
+    if ev.status is EventStatus.cancelled:
+        reason = "Мероприятие отменено"
+    elif is_past:
+        reason = "Мероприятие завершено"
+    elif ev.creator_id == me.id:
+        # организатор идёт по определению, иначе некому проводить
+        reason = "Вы организатор — вы всегда идёте"
+
     return EventOut(
         **{k: getattr(ev, k) for k in (
             "id", "group_id", "creator_id", "title", "description", "emoji", "cover",
@@ -49,7 +71,10 @@ async def to_out(db: AsyncSession, ev: Event, me: User, part: Participant | None
         online_url=ev.online_url if going or ev.creator_id == me.id else None,
         my_status=part.status if part else None,
         my_arrival=part.arrival_at if part else None,
-        can_edit=editable,
+        can_edit=editable and not is_past and ev.status is not EventStatus.cancelled,
+        is_past=is_past,
+        can_rsvp=reason is None,
+        rsvp_locked_reason=reason,
     )
 
 
@@ -131,18 +156,24 @@ async def edit(
     if ev is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "мероприятие не найдено")
     out = await to_out(db, ev, me)
+    # сначала состояние мероприятия, потом права: иначе автор завершённого
+    # получал бы «нет прав», хотя дело не в правах
+    if ev.status is EventStatus.cancelled:
+        raise HTTPException(status.HTTP_409_CONFLICT, "мероприятие отменено")
+    if out.is_past:
+        raise HTTPException(status.HTTP_409_CONFLICT, "завершённое мероприятие не редактируется")
     if not out.can_edit:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "нет прав на редактирование")
 
     changed = body.model_dump(exclude_none=True)
-    time_moved = "starts_at" in changed or "ends_at" in changed
     for key, val in changed.items():
         setattr(ev, key, val)
 
-    if time_moved or "place" in changed:
+    # уведомляем всех приглашённых о любой правке, а не только о переносе:
+    # смена места или лимита мест для участника не менее важна
+    if changed:
         rows = (await db.execute(
-            select(Participant).where(Participant.event_id == ev.id,
-                                      Participant.status.in_([RsvpStatus.going, RsvpStatus.maybe]))
+            select(Participant).where(Participant.event_id == ev.id)
         )).scalars().all()
         for pt in rows:
             if pt.user_id != me.id:
@@ -190,6 +221,45 @@ async def participants(
     return list(res.scalars().all())
 
 
+@router.post("/{event_id}/invite", response_model=list[ParticipantOut], status_code=201)
+async def invite(
+    event_id: UUID, body: InviteUsersIn,
+    me: User = Depends(current_user), db: AsyncSession = Depends(get_db),
+):
+    """Позвать людей на мероприятие.
+
+    В группу они при этом не попадают: гость может прийти на один матч,
+    не вступая в команду.
+    """
+    ev = await db.get(Event, event_id)
+    if ev is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "мероприятие не найдено")
+    out = await to_out(db, ev, me)
+    if not out.can_edit:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "нет прав приглашать в это мероприятие")
+
+    added: list[Participant] = []
+    for uid_ in body.user_ids:
+        if await my_part(db, ev.id, uid_) is not None:
+            continue
+        if await db.get(User, uid_) is None:
+            continue
+        # invited_by в модели участника нет: добавление колонки потребовало бы
+        # миграции живой базы, а схема пока создаётся из моделей
+        part = Participant(event_id=ev.id, user_id=uid_)
+        db.add(part)
+        added.append(part)
+        await enqueue(db, uid_, "event.invited",
+                      {"title": ev.title, "when": fmt_when(ev),
+                       "place": f"\n\U0001f4cd {ev.place}" if ev.place else "",
+                       "event_id": str(ev.id)},
+                      dedup_key=f"invited:{ev.id}:{uid_}")
+    await db.commit()
+    for p in added:
+        await db.refresh(p)
+    return added
+
+
 @router.post("/{event_id}/rsvp", response_model=EventOut)
 async def rsvp(
     event_id: UUID, body: RsvpIn,
@@ -200,8 +270,9 @@ async def rsvp(
     ev = res.scalar_one_or_none()
     if ev is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "мероприятие не найдено")
-    if ev.status is EventStatus.cancelled:
-        raise HTTPException(status.HTTP_409_CONFLICT, "мероприятие отменено")
+    guard = await to_out(db, ev, me)
+    if not guard.can_rsvp:
+        raise HTTPException(status.HTTP_409_CONFLICT, guard.rsvp_locked_reason or "ответ закрыт")
 
     part = await my_part(db, event_id, me.id)
     if part is None:

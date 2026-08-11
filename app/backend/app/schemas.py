@@ -79,6 +79,9 @@ class EventIn(BaseModel):
 
 
 class EventPatch(BaseModel):
+    """Группа сюда намеренно не входит: переносить мероприятие между группами
+    нельзя — у участников уже сложились ответы и приглашения."""
+
     title: str | None = None
     description: str | None = None
     emoji: str | None = None
@@ -91,6 +94,9 @@ class EventPatch(BaseModel):
     capacity_max: int | None = None
     quorum_min: int | None = None
     quorum_deadline: datetime | None = None
+    emoji: str | None = None
+    is_time_flexible: bool | None = None
+    waitlist_enabled: bool | None = None
 
 
 class ParticipantOut(ORM):
@@ -99,6 +105,17 @@ class ParticipantOut(ORM):
     arrival_at: datetime | None = None
     departure_at: datetime | None = None
     waitlist_pos: int | None = None
+
+
+class MembersIn(BaseModel):
+    user_ids: list[UUID] = Field(min_length=1)
+    role: GroupRole = GroupRole.member
+
+
+class InviteUsersIn(BaseModel):
+    """Гости вне группы: попадают в мероприятие, но не в саму группу."""
+
+    user_ids: list[UUID] = Field(min_length=1)
 
 
 class EventOut(ORM):
@@ -126,6 +143,9 @@ class EventOut(ORM):
     my_status: RsvpStatus | None = None
     my_arrival: datetime | None = None
     can_edit: bool = False
+    is_past: bool = False
+    can_rsvp: bool = True
+    rsvp_locked_reason: str | None = None
 
 
 class RsvpIn(BaseModel):
