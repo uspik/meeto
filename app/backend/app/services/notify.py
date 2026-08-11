@@ -44,17 +44,29 @@ def local(iso: str | None, tz_name: str) -> str:
     return f"{moment.astimezone(zone):%d.%m в %H:%M}"
 
 
+class _Blank(dict):
+    """Недостающие ключи превращает в пустую строку.
+
+    Без этого одна лишняя фигурная скобка в шаблоне роняла format, и человек
+    получал сообщение вида «Изменилось мероприятие {title}» — сырой шаблон.
+    Лучше отдать текст с пропуском, чем показать разметку.
+    """
+
+    def __missing__(self, key: str) -> str:  # noqa: D105
+        return ""
+
+
 def render(kind: str, payload: dict, tz_name: str = "UTC") -> str:
     tpl = TEMPLATES.get(kind)
     if not tpl:
         return payload.get("text", "")
-    safe = {k: (v if v is not None else "") for k, v in payload.items()}
+    safe = _Blank({k: (v if v is not None else "") for k, v in payload.items()})
     # время подставляем уже в поясе получателя
-    if "when_ts" in payload:
-        safe["when"] = local(payload.get("when_ts"), tz_name)
+    if payload.get("when_ts"):
+        safe["when"] = local(payload["when_ts"], tz_name)
     try:
-        return tpl.format(**safe)
-    except KeyError:
+        return tpl.format_map(safe)
+    except (IndexError, ValueError):
         return payload.get("text", tpl)
 
 

@@ -206,8 +206,15 @@ async def edit(
 
     # Беспокоим людей только тем, что влияет на решение идти или нет.
     if really_changed & SIGNIFICANT:
+        # Тем, кто отказался или не ответил, правки безразличны.
+        # Пишем идущим, стоящим в очереди и тем, кто под вопросом.
         rows = (await db.execute(
-            select(Participant).where(Participant.event_id == ev.id)
+            select(Participant).where(
+                Participant.event_id == ev.id,
+                Participant.status.in_([
+                    RsvpStatus.going, RsvpStatus.waitlisted, RsvpStatus.maybe,
+                ]),
+            )
         )).scalars().all()
         for pt in rows:
             if pt.user_id != me.id:

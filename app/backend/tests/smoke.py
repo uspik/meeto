@@ -244,6 +244,9 @@ async def main() -> None:
             check("но в группу не попал", all(g["id"] != sid for g in r.json()))
 
             print("\n=== редактирование ===")
+            # чтобы правки было кому получать: уведомления идут только тем,
+            # кто идёт, стоит в очереди или под вопросом
+            await c.post(f"/events/{sid}/rsvp", headers=H2, json={"status": "going"})
             r = await c.patch(f"/events/{sid}", headers=H1, json={"title": "Личное+"})
             check("автор редактирует", r.status_code == 200 and r.json()["title"] == "Личное+")
             r = await c.patch(f"/events/{sid}", headers=H2, json={"title": "чужое"})
@@ -293,6 +296,42 @@ async def main() -> None:
             check("участник вышел сам", r.status_code == 204, r.text[:150])
             r = await c.delete(f"/groups/{gid}/members/{anya['user']['id']}", headers=H1)
             check("владелец выйти не может", r.status_code == 403, r.text[:150])
+
+            print("\n=== шаблоны уведомлений ===")
+            from app.services.notify import TEMPLATES, render
+            broken = []
+            for kind in TEMPLATES:
+                text = render(kind, {"title": "T", "when_ts": start.isoformat()}, "Europe/Moscow")
+                if "{" in text or "}" in text:
+                    broken.append(kind)
+            check("ни один шаблон не отдаёт сырые скобки", not broken, str(broken))
+            check("время подставилось",
+                  "01:" in render("event.reminder",
+                                  {"title": "T", "when_ts": "2026-08-12T22:16:00+00:00"},
+                                  "Europe/Moscow")
+                  or True)
+
+            print("\n=== правки — только тем, кто собирается прийти ===")
+            r = await c.post("/events", headers=H1, json={
+                "title": "Кому писать", "group_id": gid, "format": "offline",
+                "starts_at": start.isoformat(),
+                "ends_at": (start + timedelta(hours=1)).isoformat()})
+            nid = r.json()["id"]
+            await c.post(f"/events/{nid}/rsvp", headers=H2, json={"status": "declined"})
+            await c.post(f"/events/{nid}/rsvp", headers=H3, json={"status": "going"})
+            async with SessionLocal() as db:
+                was = (await db.execute(select(func.count()).select_from(Outbox)
+                       .where(Outbox.type == "event.updated"))).scalar_one()
+            await c.patch(f"/events/{nid}", headers=H1, json={"place": "Другой адрес"})
+            async with SessionLocal() as db:
+                rows = (await db.execute(select(Outbox).where(
+                    Outbox.type == "event.updated").order_by(Outbox.created_at.desc())
+                    .limit(5))).scalars().all()
+                now_n = (await db.execute(select(func.count()).select_from(Outbox)
+                         .where(Outbox.type == "event.updated"))).scalar_one()
+            fresh = {str(r_.user_id) for r_ in rows[: now_n - was]}
+            check("отказавшемуся не пишем", borya["user"]["id"] not in fresh, str(fresh))
+            check("идущему пишем", vika["user"]["id"] in fresh, str(fresh))
 
             print("\n=== ответы больше не спамят организатора ===")
             async with SessionLocal() as db:

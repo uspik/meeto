@@ -18,6 +18,9 @@ services:
 
   api:
     build: ./backend
+    # общий тег для api, bot и worker: иначе пересборка одного сервиса
+    # оставляла остальные на старом коде, и шаблоны уведомлений расходились
+    image: meeto-backend:local
     env_file: .env
     depends_on:
       db: {condition: service_healthy}
@@ -27,6 +30,7 @@ services:
 
   bot:
     build: ./backend
+    image: meeto-backend:local
     env_file: .env
     depends_on: [api]
     command: python -m app.bot
@@ -34,6 +38,7 @@ services:
 
   worker:
     build: ./backend
+    image: meeto-backend:local
     env_file: .env
     depends_on:
       db: {condition: service_healthy}
