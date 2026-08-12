@@ -1,6 +1,9 @@
 /* Стили перенесены из calendar-prototype.html как есть — вёрстка уже выверена
    в браузере. Правки делаем здесь, прототип больше не источник правды. */
 :root{
+  /* отступы под системные элементы: в полноэкранном режиме их задаёт
+     Telegram, в обычном браузере остаются нулями */
+  --safe-top:0px; --safe-bottom:0px; --safe-left:0px; --safe-right:0px;
   --bg:#ffffff; --bg2:#f5f5f7; --text:#0b0b0f; --hint:#8a8a8f;
   --sep:rgba(60,60,67,.13); --card:#ffffff; --link:#2f7cf6;
   --accept:#2fbf5c; --neutral:#9a9aa0; --cancel:#f59200; --waitlist:#f5c518;
@@ -24,7 +27,19 @@ html,body{margin:0;height:100%}
 body{background:var(--bg);color:var(--text);
   font:15px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Inter,Roboto,sans-serif;
   overscroll-behavior:none;-webkit-font-smoothing:antialiased}
-.phone{max-width:440px;margin:0 auto;height:100vh;display:flex;flex-direction:column;background:var(--bg)}
+.phone{max-width:440px;margin:0 auto;height:100vh;height:100dvh;
+  display:flex;flex-direction:column;background:var(--bg)}
+/* В полный экран шапка Telegram с крестиком и меню ложится поверх приложения,
+   поэтому опускаем свой заголовок и поднимаем нижнюю панель над домашней
+   полосой телефона. */
+body.tg-fullscreen .hdr{padding-top:var(--safe-top)}
+body.tg-fullscreen .bottombar{padding-bottom:calc(14px + var(--safe-bottom))}
+body.tg-fullscreen .sheet,
+body.tg-fullscreen .wz,
+body.tg-fullscreen .pop-in{padding-bottom:calc(20px + var(--safe-bottom))}
+body.tg-fullscreen .wz{height:calc(100dvh - var(--safe-top))}
+/* правый верхний угол занят системными кнопками — не даём заголовку под них лезть */
+body.tg-fullscreen .hdr-top{padding-right:calc(16px + 92px)}
 
 /* ================= header ================= */
 .hdr{flex:0 0 auto;background:var(--bg);padding-bottom:6px}
