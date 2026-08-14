@@ -44,6 +44,15 @@ export function PeoplePicker({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef(0);
+  const search = useRef<HTMLInputElement>(null);
+
+  // С мышью и клавиатурой сразу хочется печатать; на телефоне автофокус,
+  // наоборот, выкидывает клавиатуру поверх списка ещё до того, как он виден.
+  useEffect(() => {
+    if (window.matchMedia("(hover:hover) and (pointer:fine)").matches) {
+      search.current?.focus();
+    }
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -103,11 +112,17 @@ export function PeoplePicker({
             <button className="ib" onClick={close}>✕</button>
           </div>
           <input
+            ref={search}
             className="inp"
             style={{ marginTop: 10 }}
             value={q}
             placeholder="Имя или @username"
             onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter по набранному @username зовёт его, не заставляя
+              // тянуться мышью к кнопке «Позвать»
+              if (e.key === "Enter" && canInviteHandle) { e.preventDefault(); inviteHandle(); }
+            }}
           />
           {(picked.length > 0 || invited.length > 0) && (
             <div className="picked">

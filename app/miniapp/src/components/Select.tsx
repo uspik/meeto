@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Overlay } from "./Overlay";
+import { useEscape } from "../lib/useSheet";
 
 export interface Option { value: string; label: string }
 
@@ -25,6 +26,9 @@ export function Select({ value, options, onChange, compact, disabled }: Props) {
   const trigger = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const current = options.find((o) => o.value === value) ?? options[0];
+
+  // мышью список закрывают нажатием мимо, с клавиатуры — Esc
+  useEscape(open, () => setOpen(false));
 
   useLayoutEffect(() => {
     if (!open || !trigger.current) return;

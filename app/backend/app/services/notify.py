@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Outbox
@@ -81,6 +82,20 @@ async def enqueue(
     scheduled_at: datetime | None = None,
     dedup_key: str | None = None,
 ) -> None:
+    # dedup_key защищает от двойной отправки одного и того же, а не от
+    # повторения события через месяц. Раньше ключ жил вечно, и повторное
+    # приглашение (человека исключили и позвали обратно) валилось на
+    # UNIQUE — вместе со всем запросом. Поэтому: пока старое уведомление
+    # не ушло, второе не ставим; как только ушло — освобождаем ключ.
+    if dedup_key is not None:
+        res = await db.execute(select(Outbox).where(Outbox.dedup_key == dedup_key))
+        old = res.scalars().first()
+        if old is not None:
+            if old.state == "scheduled":
+                return
+            old.dedup_key = None
+            await db.flush()
+
     db.add(
         Outbox(
             user_id=user_id,

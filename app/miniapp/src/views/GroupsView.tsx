@@ -40,6 +40,8 @@ export function GroupsView({ groups, invitations, meId, onChanged }: Props) {
   const [confirmRotate, setConfirmRotate] = useState(false);
   const [copied, setCopied] = useState(false);
   const [pending, setPending] = useState<string[]>([]);
+  // исключённые в этом сеансе — блок «Исключены» с кнопкой «Вернуть»
+  const [removed, setRemoved] = useState<Member[]>([]);
   // список участников подгружается отдельным запросом: пока он идёт,
   // показываем скелетоны, иначе строки «выпрыгивают» на готовой странице
   const [loadingMembers, setLoadingMembers] = useState(false);
@@ -52,6 +54,7 @@ export function GroupsView({ groups, invitations, meId, onChanged }: Props) {
     setConfirmRotate(false);
     setCopied(false);
     setMembers([]);
+    setRemoved([]);
     setLoadingMembers(true);
     api.members(openId)
       .then(setMembers)
@@ -270,6 +273,9 @@ export function GroupsView({ groups, invitations, meId, onChanged }: Props) {
                     guard(async () => {
                       await api.removeMember(group.id, m.user.id);
                       setMembers(await api.members(group.id));
+                      // держим исключённого внизу страницы: вернуть его
+                      // должно быть так же просто, как исключить
+                      setRemoved((prev) => [...prev.filter((r) => r.user.id !== m.user.id), m]);
                       onChanged();
                     })
                   }
@@ -304,10 +310,55 @@ export function GroupsView({ groups, invitations, meId, onChanged }: Props) {
                       guard(async () => {
                         await api.removeMember(group.id, m.user.id);
                         setMembers(await api.members(group.id));
+                        setRemoved((prev) => [...prev.filter((r) => r.user.id !== m.user.id), m]);
                       })
                     }
                   >
                     ✕
+                  </button>
+                )}
+              </div>
+            ))}
+          </>
+        )}
+
+        {removed.length > 0 && (
+          <>
+            <div className="wsec">Исключены</div>
+            {removed.map((m) => (
+              <div key={m.user.id} className="wrow">
+                <span
+                  className="pav"
+                  style={{
+                    backgroundImage: m.user.photo_url ? `url(${m.user.photo_url})` : undefined,
+                    opacity: 0.55,
+                  }}
+                >
+                  {m.user.photo_url ? "" : fullName(m.user).slice(0, 1).toUpperCase()}
+                </span>
+                <div className="wmeta">
+                  <div className="wname"><em>{fullName(m.user)}</em></div>
+                  <div className="wsub">можно позвать обратно</div>
+                </div>
+                {iAmBoss && (
+                  <button
+                    className="tb"
+                    disabled={busy}
+                    onClick={() =>
+                      guard(async () => {
+                        // роль возвращаем прежнюю, но только из тех, что
+                        // бэкенд принимает в этой ручке
+                        await api.addMembers(
+                          group.id, [m.user.id], [],
+                          ASSIGNABLE.includes(m.role) ? m.role : "member",
+                        );
+                        setMembers(await api.members(group.id));
+                        setRemoved((prev) => prev.filter((r) => r.user.id !== m.user.id));
+                        onChanged();
+                      })
+                    }
+                  >
+                    Вернуть
                   </button>
                 )}
               </div>

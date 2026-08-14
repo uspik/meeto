@@ -214,6 +214,14 @@ async def kick(
             if user_id == me.id else "владельца исключить нельзя",
         )
     await db.delete(target)
+    # исключение не должно быть дорогой в один конец: запоминаем контакт,
+    # иначе человек пропадает из подбора людей и позвать его обратно можно
+    # только по точному @username — а его может и не быть вовсе
+    if user_id != me.id:
+        group_obj = await db.get(Group, group_id)
+        keepers = {me.id} | ({group_obj.owner_id} if group_obj else set())
+        for keeper in keepers:
+            await inv.remember_contact(db, keeper, [user_id])
     await db.commit()
 
 

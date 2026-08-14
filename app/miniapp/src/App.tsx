@@ -166,6 +166,28 @@ export default function App() {
     return () => window.clearTimeout(t);
   }, [anim]);
 
+  // Клавиатура на компьютере: стрелки листают период, «сегодня» — на Home,
+  // Tab/Shift+Tab и Esc работают сами. Обработчик переустанавливается на
+  // каждый рендер намеренно — так он всегда видит актуальные view и cursor,
+  // а список зависимостей не приходится держать в голове.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      const el = document.activeElement as HTMLElement | null;
+      const typing = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
+        || el?.isContentEditable;
+      // при открытой шторке стрелки принадлежат ей, а не календарю
+      if (typing || openEvent || editEvent || wizard || inviteTo || whoFor) return;
+      if (view === "groups") return;
+
+      if (e.key === "ArrowLeft") { e.preventDefault(); shift(-1); }
+      else if (e.key === "ArrowRight") { e.preventDefault(); shift(1); }
+      else if (e.key === "Home") { e.preventDefault(); setCursor(today); setSelected(today); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   function upsert(updated: Event) {
     setEvents((prev) => {
       const idx = prev.findIndex((e) => e.id === updated.id);

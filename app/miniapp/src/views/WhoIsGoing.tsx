@@ -44,6 +44,23 @@ export function WhoIsGoing({ event, onClose, onChanged }: Props) {
   const [error, setError] = useState<string | null>(null);
   // кого именно убираем: подтверждение прямо в строке, без отдельного окна
   const [dropping, setDropping] = useState<string | null>(null);
+  // убранные в этом сеансе — показываем отдельным блоком с кнопкой «Вернуть»
+  const [removed, setRemoved] = useState<Participant[]>([]);
+  const [restoring, setRestoring] = useState<string | null>(null);
+
+  async function restore(p: Participant) {
+    setRestoring(p.user.id);
+    try {
+      await api.inviteToEvent(event.id, [p.user.id]);
+      setRemoved((prev) => prev.filter((r) => r.user.id !== p.user.id));
+      setRows((prev) => [...prev, { ...p, status: "invited", waitlist_pos: null }]);
+      onChanged?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "не удалось вернуть");
+    } finally {
+      setRestoring(null);
+    }
+  }
 
   useEffect(() => {
     api.participants(event.id)
@@ -123,6 +140,9 @@ export function WhoIsGoing({ event, onClose, onChanged }: Props) {
                           try {
                             await api.dropParticipant(event.id, p.user.id);
                             setRows((prev) => prev.filter((r) => r.user.id !== p.user.id));
+                            // не выкидываем совсем: держим внизу списка,
+                            // чтобы убранного можно было вернуть одним нажатием
+                            setRemoved((prev) => [...prev, p]);
                             onChanged?.();
                           } catch (e) {
                             setError(e instanceof Error ? e.message : "не удалось убрать");
@@ -148,6 +168,36 @@ export function WhoIsGoing({ event, onClose, onChanged }: Props) {
             );
           })}
 
+          {removed.length > 0 && (
+            <>
+              <div className="wsec">Убраны с мероприятия</div>
+              {removed.map((p) => (
+                <div key={p.user.id} className="wrow">
+                  <span
+                    className="pav"
+                    style={{
+                      backgroundImage: p.user.photo_url ? `url(${p.user.photo_url})` : undefined,
+                      opacity: 0.55,
+                    }}
+                  >
+                    {p.user.photo_url ? "" : initials(p.user)}
+                  </span>
+                  <div className="wmeta">
+                    <div className="wname"><em>{fullName(p.user)}</em></div>
+                    <div className="wsub">убран — можно позвать обратно</div>
+                  </div>
+                  <button
+                    className="tb"
+                    disabled={restoring === p.user.id}
+                    onClick={() => void restore(p)}
+                  >
+                    Вернуть
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
+
           {pending.length > 0 && (
             <>
               <div className="wsec">Позваны, ещё не в Meeto</div>
@@ -165,7 +215,7 @@ export function WhoIsGoing({ event, onClose, onChanged }: Props) {
             </>
           )}
 
-          {!loading && rows.length === 0 && pending.length === 0 && (
+          {!loading && rows.length === 0 && pending.length === 0 && removed.length === 0 && (
             <div className="empty"><div>👤</div>Пока никого</div>
           )}
         </div>

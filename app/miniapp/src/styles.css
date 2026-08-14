@@ -10,6 +10,10 @@
   --decline:#c2554c; --conflict:#ff3b30;
   --shadow:0 1px 2px rgba(0,0,0,.05),0 6px 18px rgba(0,0,0,.05);
   --r:16px;
+  /* ширина рабочей колонки: на телефоне это вся ширина экрана, на большом
+     окне колонка расширяется — см. блок «компьютер» в конце файла */
+  --app-w:440px;
+  --cell-h:60px;
 }
 body.dark{
   --bg:#141a21; --bg2:#1c242e; --text:#f2f5f8; --hint:#7f8d9b;
@@ -27,7 +31,7 @@ html,body{margin:0;height:100%}
 body{background:var(--bg);color:var(--text);
   font:15px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Inter,Roboto,sans-serif;
   overscroll-behavior:none;-webkit-font-smoothing:antialiased}
-.phone{max-width:440px;margin:0 auto;height:100vh;height:100dvh;
+.phone{max-width:var(--app-w);margin:0 auto;height:100vh;height:100dvh;
   display:flex;flex-direction:column;background:var(--bg)}
 /* В полный экран шапка Telegram с крестиком и меню ложится поверх приложения,
    поэтому опускаем свой заголовок и поднимаем нижнюю панель над домашней
@@ -107,7 +111,7 @@ body.tg-fullscreen .hdr-top{padding-right:calc(16px + 92px)}
 .month{display:grid;grid-template-columns:repeat(7,1fr);padding:0 8px}
 /* высота ячейки фиксирована: добавление мероприятия не двигает сетку.
    overflow видимый — иначе обрезается статус-полоса под иконкой */
-.cell{height:60px;border-radius:13px;padding:5px 2px 6px;display:flex;flex-direction:column;
+.cell{height:var(--cell-h);border-radius:13px;padding:5px 2px 6px;display:flex;flex-direction:column;
   align-items:center;gap:5px;cursor:pointer;position:relative;transition:background .15s}
 .cell:active{background:var(--bg2)}
 .cell.out{opacity:.28}
@@ -294,7 +298,7 @@ body.tg-fullscreen .hdr-top{padding-right:calc(16px + 92px)}
 .periods{display:flex;gap:7px;padding:2px 16px 10px;flex:0 0 auto}
 
 /* ================= fab / sheet ================= */
-.fab{position:fixed;right:calc(50% - 220px + 18px);bottom:100px;width:52px;height:52px;
+.fab{position:fixed;right:calc(50% - var(--app-w) / 2 + 18px);bottom:100px;width:52px;height:52px;
   border-radius:17px;border:none;background:var(--link);color:#fff;font-size:26px;cursor:pointer;
   box-shadow:0 8px 24px rgba(47,124,246,.4);z-index:30;transition:transform .15s}
 .fab:active{transform:scale(.92)}
@@ -302,7 +306,7 @@ body.tg-fullscreen .hdr-top{padding-right:calc(16px + 92px)}
 .scrim{position:fixed;inset:0;background:rgba(0,0,0,.42);opacity:0;pointer-events:none;
   transition:.22s;z-index:40;backdrop-filter:blur(2px)}
 .scrim.on{opacity:1;pointer-events:auto}
-.sheet{position:fixed;left:50%;transform:translate(-50%,110%);bottom:0;width:100%;max-width:440px;
+.sheet{position:fixed;left:50%;transform:translate(-50%,110%);bottom:0;width:100%;max-width:var(--app-w);
   background:var(--bg);border-radius:22px 22px 0 0;z-index:50;
   transition:transform .3s cubic-bezier(.32,.72,0,1);max-height:88vh;overflow:auto;padding-bottom:26px}
 .sheet.on{transform:translate(-50%,0)}
@@ -331,7 +335,7 @@ body.tg-fullscreen .hdr-top{padding-right:calc(16px + 92px)}
 .people i{width:27px;height:27px;border-radius:50%;margin-right:-8px;border:2px solid var(--bg);
   display:grid;place-items:center;font-size:11px;font-style:normal;color:#fff;font-weight:650}
 /* ================= визард создания ================= */
-.wz{position:fixed;left:50%;transform:translate(-50%,100%);bottom:0;width:100%;max-width:440px;
+.wz{position:fixed;left:50%;transform:translate(-50%,100%);bottom:0;width:100%;max-width:var(--app-w);
   height:94vh;background:var(--bg);border-radius:22px 22px 0 0;z-index:70;display:flex;
   flex-direction:column;transition:transform .34s cubic-bezier(.32,.72,0,1)}
 .wz.on{transform:translate(-50%,0)}
@@ -507,7 +511,7 @@ body.dark{--pick-filter:invert(1)}
 .pop{position:fixed;inset:0;z-index:80;display:flex;align-items:flex-end;justify-content:center;
   background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .24s}
 .pop.on{opacity:1;pointer-events:auto}
-.pop-in{width:100%;max-width:440px;background:var(--bg);border-radius:22px 22px 0 0;
+.pop-in{width:100%;max-width:var(--app-w);background:var(--bg);border-radius:22px 22px 0 0;
   padding:10px 18px 20px;transform:translateY(26px);
   transition:transform .3s cubic-bezier(.32,.72,0,1)}
 .pop.on .pop-in{transform:none}
@@ -748,3 +752,69 @@ html.theming,body.theming,body.theming *{
 .wdrop{display:flex;gap:4px;flex:0 0 auto}
 .kick.yes{color:var(--decline);background:color-mix(in srgb,var(--decline) 14%,transparent)}
 .kick.no{color:var(--hint)}
+
+
+/* ================= компьютер =================
+
+   В Telegram Desktop окно mini-app шире и выше телефонного, а управление —
+   мышь и клавиатура. Отсюда три отличия от телефона:
+
+   1. Колонка шире: в окне на 1200 px полоса в 440 px посреди пустоты
+      выглядит незаконченной. Ширина одна на всё приложение (--app-w),
+      её же используют шторки и кнопка «+».
+   2. Шторки превращаются в окна по центру. Снизу они выезжают потому,
+      что там большой палец; у мыши такого ограничения нет, а тянуться
+      к нижнему краю большого экрана неудобно.
+   3. Подсветка под курсором. На телефоне её роль играет :active, мышь же
+      ждёт отклика ещё до нажатия. Всё под @media(hover:hover), чтобы
+      на сенсорных экранах подсветка не залипала после касания. */
+
+@media (min-width:760px) and (min-height:560px){
+  :root{--app-w:560px;--cell-h:74px}
+
+  /* на очень широком экране колонку стоит обозначить: иначе непонятно,
+     где кончается приложение и начинается пустота */
+  .phone{border-left:1px solid var(--sep);border-right:1px solid var(--sep)}
+
+  /* шторки → окна по центру экрана */
+  .sheet,.wz{top:50%;bottom:auto;border-radius:20px}
+  .sheet{max-height:min(84vh,760px)}
+  .wz,body.tg-fullscreen .wz{height:min(86vh,820px)}
+  .sheet.on,.wz.on{animation:dialogIn .3s cubic-bezier(.32,.72,0,1) both}
+  .sheet.on.closing,.wz.on.closing{animation:dialogOut .22s ease both}
+  /* полоска-ручка нужна для жеста пальцем, мышью её никто не тянет */
+  .grab{display:none}
+  .sheet .sh-hd{padding-top:18px}
+
+  .pop{align-items:center}
+  .pop-in{border-radius:20px}
+}
+
+@keyframes dialogIn{
+  from{opacity:0;transform:translate(-50%,calc(-50% + 16px)) scale(.985)}
+  to{opacity:1;transform:translate(-50%,-50%)}
+}
+@keyframes dialogOut{
+  from{opacity:1;transform:translate(-50%,-50%)}
+  to{opacity:0;transform:translate(-50%,calc(-50% + 10px)) scale(.99)}
+}
+
+@media (hover:hover) and (pointer:fine){
+  .row:hover,.prow:hover,.blk:hover,.linkval:hover,.wide:hover{background:var(--bg2)}
+  .row:hover{box-shadow:var(--shadow)}
+  .cell:hover:not(.sel){background:var(--bg2)}
+  .ib:hover,.tb:hover,.plate:hover:not(:disabled){filter:brightness(1.06);
+    background:color-mix(in srgb,var(--link) 10%,var(--bg2))}
+  .seg button:not(.on):hover{color:var(--text)}
+  .chip:not(.on):hover{border-color:var(--hint);color:var(--text)}
+  .rsvp button:not(.on):not(:disabled):hover,.wz-ft button:hover:not([disabled]),
+  .invbtns button:not(.on):not(:disabled):hover{background:var(--bg2)}
+  .wz-ft .go:hover:not([disabled]){filter:brightness(1.08);background:var(--link)}
+  .fab:hover,.bottombar .plus:hover{filter:brightness(1.08);transform:translateY(-1px)}
+  .pchip:hover i{color:var(--decline)}
+  .opt:hover{background:var(--bg2)}
+}
+
+/* Клавиатура: видимая рамка фокуса. Мышью её не видно, но при переходах
+   табом без неё непонятно, где находишься. */
+:focus-visible{outline:2px solid var(--link);outline-offset:2px;border-radius:10px}

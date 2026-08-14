@@ -291,6 +291,16 @@ async def main() -> None:
             check("после исключения остаётся в контактах",
                   "Вика" in {u["first_name"] for u in r.json()}, str(had))
 
+            # Раньше здесь падал весь запрос: уведомление о приглашении
+            # ставилось с тем же dedup_key, что и в первый раз, и упиралось
+            # в UNIQUE. Человека нельзя было вернуть вообще никак.
+            r = await c.post(f"/groups/{gid}/members", headers=H1,
+                             json={"user_ids": [vika["user"]["id"]], "usernames": []})
+            check("исключённого приглашают в группу повторно",
+                  r.status_code == 201 and r.json()["added"] == 1, r.text[:200])
+            r = await c.post(f"/groups/{gid}/accept", headers=H3)
+            check("и он снова принимает приглашение", r.status_code == 200, r.text[:200])
+
             print("\n=== выход из группы ===")
             r = await c.delete(f"/groups/{gid}/members/{borya['user']['id']}", headers=H2)
             check("участник вышел сам", r.status_code == 204, r.text[:150])
@@ -448,6 +458,13 @@ async def main() -> None:
             r = await c.get(f"/events/{kid}", headers=HZ)
             check("очередь сдвинулась на освободившееся место",
                   r.json()["my_status"] == "going", r.text[:200])
+
+            r = await c.post(f"/events/{kid}/invite", headers=H1,
+                             json={"user_ids": [dima["user"]["id"]], "usernames": []})
+            check("убранного зовут обратно",
+                  r.status_code == 201 and r.json()["added"] == 1, r.text[:200])
+            r = await c.get(f"/events/{kid}", headers=HD)
+            check("и он снова в списке", r.json()["my_status"] == "invited", r.text[:200])
 
             print("\n=== кнопки прямо в уведомлении ===")
             from app.services.notify import actions_for

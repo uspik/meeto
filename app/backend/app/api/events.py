@@ -348,6 +348,12 @@ async def drop_participant(
             await enqueue(db, cand.user_id, "waitlist.promoted",
                           {"title": ev.title, "when_ts": when_of(ev), "event_id": str(ev.id)})
 
+    # чтобы позвать обратно: убранный должен остаться в подборе людей,
+    # даже если общих групп с ним больше нет
+    await inv.remember_contact(db, me.id, [user_id])
+    if ev.creator_id != me.id:
+        await inv.remember_contact(db, ev.creator_id, [user_id])
+
     await enqueue(db, user_id, "event.removed", {"title": ev.title, "event_id": str(ev.id)})
     await db.commit()
 

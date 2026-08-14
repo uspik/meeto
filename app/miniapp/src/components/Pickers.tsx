@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { MNn, WD, dstr, mondayOf, p2, sameDay } from "../lib/date";
+import { useEscape } from "../lib/useSheet";
 
 const ROW = 44; // высота позиции барабана, должна совпадать с .wheel b в styles.css
 
@@ -8,6 +9,8 @@ interface SheetProps { open: boolean; onClose(): void; children: React.ReactNode
 
 /** Общая обёртка: затемнение + выезжающая снизу панель. */
 function Sheet({ open, onClose, children }: SheetProps) {
+  // барабаны открываются поверх визарда — Esc должен закрывать их, а не его
+  useEscape(open, onClose);
   return (
     <div className={`pop ${open ? "on" : ""}`} onClick={(e) => {
       if (e.target === e.currentTarget) onClose();
