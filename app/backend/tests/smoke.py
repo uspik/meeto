@@ -388,6 +388,75 @@ async def main() -> None:
             r = await c.post(f"/events/{oid}/rsvp", headers=H1, json={"status": "declined"})
             check("автор не может отказаться", r.status_code == 409)
 
+            print("\n=== приглашение в группу: принять или отказаться ===")
+            r = await c.post("/auth/telegram",
+                             headers={"Authorization": f"tma {init_data(11, 'Дима')}"})
+            dima = r.json(); HD = {"Authorization": "Bearer " + dima["access"]}
+            r = await c.post("/auth/telegram",
+                             headers={"Authorization": f"tma {init_data(12, 'Женя')}"})
+            zhenya = r.json(); HZ = {"Authorization": "Bearer " + zhenya["access"]}
+
+            await c.post(f"/groups/{gid}/members", headers=H1,
+                         json={"user_ids": [dima["user"]["id"], zhenya["user"]["id"]],
+                               "role": "member"})
+            r = await c.get("/groups", headers=HD)
+            check("до ответа группы в списке нет", all(g["id"] != gid for g in r.json()),
+                  r.text[:200])
+            r = await c.get("/groups/invitations", headers=HD)
+            check("приглашение видно отдельно",
+                  len(r.json()) == 1 and r.json()[0]["id"] == gid, r.text[:200])
+            r = await c.get(f"/groups/{gid}/members", headers=HD)
+            check("внутрь группы до ответа не пускают", r.status_code == 403, r.text[:150])
+
+            r = await c.post(f"/groups/{gid}/accept", headers=HD)
+            check("приглашение принято", r.status_code == 200, r.text[:200])
+            r = await c.get("/groups", headers=HD)
+            check("после согласия группа в списке", any(g["id"] == gid for g in r.json()))
+            r = await c.get("/groups/invitations", headers=HD)
+            check("и уходит из приглашений", r.json() == [], r.text[:150])
+
+            r = await c.post(f"/groups/{gid}/decline", headers=HZ)
+            check("от приглашения можно отказаться", r.status_code == 204, r.text[:150])
+            r = await c.get("/groups/invitations", headers=HZ)
+            check("отказ убирает приглашение", r.json() == [], r.text[:150])
+            r = await c.get("/groups", headers=HZ)
+            check("и в группу не добавляет", all(g["id"] != gid for g in r.json()))
+
+            print("\n=== организатор убирает участника ===")
+            r = await c.post("/events", headers=H1, json={
+                "title": "Разбор", "starts_at": (start + timedelta(days=3)).isoformat(),
+                "ends_at": (start + timedelta(days=3, hours=1)).isoformat(),
+                "format": "offline", "place": "Класс", "capacity_max": 2,
+            })
+            kid = r.json()["id"]
+            await c.post(f"/events/{kid}/invite", headers=H1,
+                         json={"user_ids": [dima["user"]["id"], zhenya["user"]["id"]]})
+            r = await c.post(f"/events/{kid}/rsvp", headers=HD, json={"status": "going"})
+            check("первый занял свободное место", r.json()["my_status"] == "going", r.text[:200])
+            r = await c.post(f"/events/{kid}/rsvp", headers=HZ, json={"status": "going"})
+            check("мест нет — второй в очереди", r.json()["my_status"] == "waitlisted",
+                  r.text[:200])
+
+            r = await c.delete(f"/events/{kid}/participants/{dima['user']['id']}", headers=HZ)
+            check("участник чужих не убирает", r.status_code == 403, r.text[:150])
+            r = await c.delete(f"/events/{kid}/participants/{anya['user']['id']}", headers=H1)
+            check("организатора убрать нельзя", r.status_code == 400, r.text[:150])
+            r = await c.delete(f"/events/{kid}/participants/{dima['user']['id']}", headers=H1)
+            check("организатор убрал участника", r.status_code == 204, r.text[:150])
+            r = await c.get(f"/events/{kid}", headers=HD)
+            check("убранный больше не участник", r.json()["my_status"] is None, r.text[:200])
+            r = await c.get(f"/events/{kid}", headers=HZ)
+            check("очередь сдвинулась на освободившееся место",
+                  r.json()["my_status"] == "going", r.text[:200])
+
+            print("\n=== кнопки прямо в уведомлении ===")
+            from app.services.notify import actions_for
+            btns = actions_for("event.invited", {"event_id": kid})
+            check("у приглашения три кнопки", len(btns) == 3, str(btns))
+            check("callback_data разбирается",
+                  [d.split(":")[2] for _, d in btns] == ["going", "maybe", "declined"], str(btns))
+            check("без мероприятия кнопок нет", actions_for("event.invited", {}) == [])
+
             print("\n=== аутбокс уведомлений ===")
             from app.db import SessionLocal
             from app.models import Outbox

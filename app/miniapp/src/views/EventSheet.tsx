@@ -27,6 +27,9 @@ export function EventSheet({ event, onClose, onChanged, onEdit, onInvite, onWho 
   const { close, cls } = useSheet(onClose);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // отмена — действие необратимое, поэтому спрашиваем причину и подтверждение
+  const [cancelling, setCancelling] = useState(false);
+  const [reason, setReason] = useState("");
   const start = new Date(event.starts_at);
   const finish = event.ends_at ? new Date(event.ends_at) : new Date(+start + 3600_000);
   const window = Math.max(0, Math.round((+finish - +start) / 60_000));
@@ -213,6 +216,51 @@ export function EventSheet({ event, onClose, onChanged, onEdit, onInvite, onWho 
             <button className="maybe" onClick={() => onEdit(event)}>Редактировать</button>
             <button className="maybe" onClick={() => onInvite(event)}>Позвать людей</button>
           </div>
+        )}
+
+        {event.can_edit && event.status !== "cancelled" && !event.is_past && (
+          cancelling ? (
+            <div className="note warn2" style={{ margin: "10px 16px 0" }}>
+              Отменить «{event.title}»? Все, кто собирался, получат уведомление.
+              <input
+                className="inp"
+                style={{ marginTop: 8 }}
+                value={reason}
+                autoFocus
+                placeholder="Причина — её увидят участники"
+                onChange={(e) => setReason(e.target.value)}
+              />
+              <div className="rsvp" style={{ padding: "10px 0 0" }}>
+                <button className="maybe" onClick={() => setCancelling(false)} disabled={busy}>
+                  Назад
+                </button>
+                <button
+                  className="declined on"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    setError(null);
+                    try {
+                      onChanged(await api.cancelEvent(event.id, reason.trim()));
+                      setCancelling(false);
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "не удалось отменить");
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  Отменить мероприятие
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="rsvp" style={{ paddingTop: 8 }}>
+              <button className="declined" onClick={() => setCancelling(true)}>
+                Отменить мероприятие
+              </button>
+            </div>
+          )
         )}
 
         <div className="hint">

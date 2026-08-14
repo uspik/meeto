@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import get_db
-from .models import Group, GroupMember, GroupRole, User
+from .models import Group, GroupMember, GroupRole, MembershipState, User
 from .permissions import can
 from .security import AuthError, decode
 
@@ -38,7 +38,8 @@ async def membership(db: AsyncSession, group_id: UUID, user_id: UUID) -> GroupMe
 
 
 async def require_group(
-    db: AsyncSession, group_id: UUID, user: User, flag: str | None = None
+    db: AsyncSession, group_id: UUID, user: User, flag: str | None = None,
+    *, allow_pending: bool = False,
 ) -> tuple[Group, GroupMember]:
     group = await db.get(Group, group_id)
     if group is None or group.deleted_at is not None:
@@ -47,6 +48,10 @@ async def require_group(
     member = await membership(db, group_id, user.id)
     if member is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "вы не участник группы")
+
+    # приглашение ещё не принято: внутрь группы не пускаем
+    if member.state != MembershipState.active.value and not allow_pending:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "приглашение ещё не принято")
 
     if flag and not can(member.role, flag, group.member_defaults, member.permissions_override):
         raise HTTPException(status.HTTP_403_FORBIDDEN, f"нет права {flag}")

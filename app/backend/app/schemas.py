@@ -38,6 +38,8 @@ class MemberOut(ORM):
     user: UserOut
     role: GroupRole
     joined_at: datetime
+    # active — в группе, pending — позвали, ответа ещё нет
+    state: str = "active"
 
 
 class GroupOut(ORM):

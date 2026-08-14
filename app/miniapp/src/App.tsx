@@ -31,9 +31,13 @@ export default function App() {
 
   const [user, setUser] = useState<User | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [invitations, setInvitations] = useState<Group[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [fatal, setFatal] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // true, пока идёт первый запрос за данными этого диапазона: списки в это
+  // время показывают скелетоны, а не пустоту, в которую потом что-то падает
+  const [fetching, setFetching] = useState(true);
 
   // Двухслойный переход между вкладками: уходящий экран остаётся снимком
   // разметки на 340 мс и растворяется, пока новый въезжает навстречу.
@@ -45,7 +49,10 @@ export default function App() {
   const [openEvent, setOpenEvent] = useState<Event | null>(null);
   const [wizard, setWizard] = useState(false);
   const [groupFilter, setGroupFilter] = useState<string | "all">("all");
-  const [inviteTo, setInviteTo] = useState<Event | null>(null);
+  // приглашая на мероприятие, сразу держим под рукой тех, кто уже позван:
+  // показывать их в списке — значит предлагать пригласить дважды
+  const [inviteTo, setInviteTo] =
+    useState<{ event: Event; exclude: Set<string>; handles: string[] } | null>(null);
   const [whoFor, setWhoFor] = useState<Event | null>(null);
   const [editEvent, setEditEvent] = useState<Event | null>(null);
 
@@ -64,12 +71,19 @@ export default function App() {
 
   const reload = useCallback(async () => {
     try {
-      const [payload, gs] = await Promise.all([api.calendar(range[0], range[1]), api.groups()]);
+      const [payload, gs, inv] = await Promise.all([
+        api.calendar(range[0], range[1]),
+        api.groups(),
+        api.groupInvitations().catch(() => [] as Group[]),
+      ]);
       setEvents(payload.events);
       setGroups(gs);
+      setInvitations(inv);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) setFatal("Сессия истекла — переоткройте приложение");
       else setFatal(e instanceof Error ? e.message : "не удалось загрузить данные");
+    } finally {
+      setFetching(false);
     }
   }, [range]);
 
@@ -242,6 +256,7 @@ export default function App() {
           {view === "month" && (
             <MonthView
               cursor={cursor} selected={selected} events={visible} today={today}
+              loading={fetching}
               onSelect={setSelected}
               onOpenDay={() => switchView("day")}
               onOpenEvent={setOpenEvent}
@@ -250,18 +265,23 @@ export default function App() {
           )}
           {view === "day" && (
             <DayView
-              cursor={cursor} events={visible} today={today}
+              cursor={cursor} events={visible} today={today} loading={fetching}
               onOpenEvent={setOpenEvent}
               onPickDay={() => switchView("month")}
               onCreate={() => setWizard(true)}
             />
           )}
           {view === "groups" && (
-            <GroupsView groups={groups} meId={user?.id ?? ""} onChanged={() => void reload()} />
+            <GroupsView
+              groups={groups}
+              invitations={invitations}
+              meId={user?.id ?? ""}
+              onChanged={() => void reload()}
+            />
           )}
           {view === "list" && (
             <ListView
-              events={visible.filter(inScope)} today={today} period={period}
+              events={visible.filter(inScope)} today={today} period={period} loading={fetching}
               onPeriod={setPeriod} onOpenEvent={setOpenEvent} onCreate={() => setWizard(true)}
             />
           )}
@@ -274,20 +294,36 @@ export default function App() {
           onClose={() => setOpenEvent(null)}
           onChanged={upsert}
           onEdit={(e) => { setOpenEvent(null); setEditEvent(e); }}
-          onInvite={(e) => { setOpenEvent(null); setInviteTo(e); }}
+          onInvite={async (e) => {
+            setOpenEvent(null);
+            const p = await api.participants(e.id).catch(() => null);
+            setInviteTo({
+              event: e,
+              exclude: new Set(p?.participants.map((x) => x.user.id) ?? []),
+              handles: p?.pending ?? [],
+            });
+          }}
           onWho={(e) => { setOpenEvent(null); setWhoFor(e); }}
         />
       )}
 
-      {whoFor && <WhoIsGoing event={whoFor} onClose={() => setWhoFor(null)} />}
+      {whoFor && (
+        <WhoIsGoing
+          event={whoFor}
+          onClose={() => setWhoFor(null)}
+          onChanged={() => void reload()}
+        />
+      )}
 
       {inviteTo && (
         <PeoplePicker
           title="Кого позвать"
+          exclude={inviteTo.exclude}
+          excludeHandles={inviteTo.handles}
           onClose={() => setInviteTo(null)}
           onDone={async (users, usernames) => {
             await api
-              .inviteToEvent(inviteTo.id, users.map((u) => u.id), usernames)
+              .inviteToEvent(inviteTo.event.id, users.map((u) => u.id), usernames)
               .catch(() => undefined);
             void reload();
           }}

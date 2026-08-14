@@ -50,6 +50,13 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class MembershipState(str, enum.Enum):
+    active = "active"
+    pending = "pending"     # позвали, но человек ещё не ответил
+    banned = "banned"
+    left = "left"
+
+
 class GroupRole(str, enum.Enum):
     owner = "owner"
     admin = "admin"
@@ -130,6 +137,8 @@ class GroupMember(Base):
         GUID, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     role: Mapped[GroupRole] = mapped_column(Enum(GroupRole), default=GroupRole.member)
+    # строкой, а не Enum: так колонку можно доложить в живую таблицу
+    state: Mapped[str] = mapped_column(String(16), default=MembershipState.active.value)
     permissions_override: Mapped[dict] = mapped_column(JSONType, default=dict)
     invited_by: Mapped[uuid.UUID | None] = mapped_column(GUID, ForeignKey("users.id"))
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

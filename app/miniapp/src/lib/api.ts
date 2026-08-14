@@ -96,6 +96,10 @@ export const api = {
   invite: (id: string) => raw<{ code: string; url: string }>(`/groups/${id}/invites`),
   rotateInvite: (id: string) =>
     raw<{ code: string; url: string }>(`/groups/${id}/invites`, { method: "POST" }),
+  /** Куда позвали, но вы ещё не ответили. */
+  groupInvitations: () => raw<Group[]>("/groups/invitations"),
+  acceptGroup: (id: string) => raw<Group>(`/groups/${id}/accept`, { method: "POST" }),
+  declineGroup: (id: string) => raw<void>(`/groups/${id}/decline`, { method: "POST" }),
   acceptInvite: (code: string) =>
     raw<Group>(`/groups/invites/${code}/accept`, { method: "POST" }),
 
@@ -124,6 +128,8 @@ export const api = {
       body: JSON.stringify({ user_ids: userIds, usernames }),
     }),
   participants: (id: string) => raw<ParticipantsPayload>(`/events/${id}/participants`),
+  dropParticipant: (eventId: string, userId: string) =>
+    raw<void>(`/events/${eventId}/participants/${userId}`, { method: "DELETE" }),
   createEvent: (body: Record<string, unknown>) =>
     raw<Event>("/events", { method: "POST", body: JSON.stringify(body) }),
   cancelEvent: (id: string, reason: string) =>

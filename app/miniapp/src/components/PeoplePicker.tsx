@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Overlay } from "./Overlay";
+import { SkeletonRows } from "./Skeleton";
 
 import { api } from "../lib/api";
 import { useSheet } from "../lib/useSheet";
@@ -10,6 +11,8 @@ interface Props {
   title: string;
   /** кого не показывать: уже в группе или уже приглашён */
   exclude?: Set<string>;
+  /** @username, которых уже позвали: предлагать их второй раз незачем */
+  excludeHandles?: string[];
   /** ссылка-приглашение для тех, кого в Meeto ещё нет */
   invite?: { url: string; text: string } | null;
   /** уже выбранные ранее — галки должны остаться на месте */
@@ -31,7 +34,7 @@ const initials = (u: User) =>
  * найти по точному @username или позвать ссылкой.
  */
 export function PeoplePicker({
-  title, exclude, invite, initial, initialHandles, onDone, onClose,
+  title, exclude, excludeHandles, invite, initial, initialHandles, onDone, onClose,
 }: Props) {
   const { close, cls } = useSheet(onClose);
   const [q, setQ] = useState("");
@@ -73,9 +76,11 @@ export function PeoplePicker({
 
   // @username, которого ещё нет в Meeto: приглашение сработает при первом входе
   const handle = q.trim().replace(/^@/, "").toLowerCase();
+  const alreadyInvited = (excludeHandles ?? []).map((h) => h.toLowerCase());
   const canInviteHandle =
     /^[a-z0-9_]{4,32}$/.test(handle) &&
     !invited.includes(handle) &&
+    !alreadyInvited.includes(handle) &&
     !visible.some((u) => (u.username ?? "").toLowerCase() === handle);
 
   const inviteHandle = () => {
@@ -127,9 +132,13 @@ export function PeoplePicker({
         <div className="wz-bd">
           {error && <div className="note warn2">{error}</div>}
 
-          {!error && loading && <div className="empty">Ищем…</div>}
+          {!error && loading && <SkeletonRows rows={3} />}
 
-          {!error && !loading && visible.length === 0 && (
+          {!error && !loading && visible.length === 0 && alreadyInvited.includes(handle) && (
+            <div className="note">@{handle} уже приглашён</div>
+          )}
+
+          {!error && !loading && visible.length === 0 && !alreadyInvited.includes(handle) && (
             <div className="empty">
               <div>👤</div>
               {q
@@ -138,10 +147,11 @@ export function PeoplePicker({
             </div>
           )}
 
-          {visible.map((u) => (
+          {visible.map((u, i) => (
             <div
               key={u.id}
-              className={`prow ${pickedIds.has(u.id) ? "on" : ""}`}
+              className={`prow rise ${pickedIds.has(u.id) ? "on" : ""}`}
+              style={{ animationDelay: `${Math.min(i, 8) * 35}ms` }}
               onClick={() => toggle(u)}
             >
               <span className="pav" style={{ backgroundImage: u.photo_url ? `url(${u.photo_url})` : undefined }}>

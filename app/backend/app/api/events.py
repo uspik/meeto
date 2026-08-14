@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_db
 from ..deps import current_user, membership, require_group
 from ..models import (
-    Event, EventStatus, GroupMember, Participant, PendingInvite, RsvpStatus, User,
+    Event, EventStatus, GroupMember, MembershipState, Participant, PendingInvite,
+    RsvpStatus, User,
 )
 from ..permissions import can
 from ..schemas import (
@@ -143,8 +144,13 @@ async def create(body: EventIn, me: User = Depends(current_user), db: AsyncSessi
     await svc.recount(db, ev)
 
     if ev.group_id and body.invite_all_group:
+        # зовём только тех, кто уже в группе: приглашённым сначала надо
+        # ответить на приглашение в саму группу
         ids = (await db.execute(
-            select(GroupMember.user_id).where(GroupMember.group_id == ev.group_id)
+            select(GroupMember.user_id).where(
+                GroupMember.group_id == ev.group_id,
+                GroupMember.state == MembershipState.active.value,
+            )
         )).scalars().all()
         for uid_ in ids:
             if uid_ == me.id:
@@ -310,6 +316,40 @@ async def invite(
     pending = await inv.remember(db, missing, by=me.id, event_id=ev.id)
     await db.commit()
     return InviteResult(added=len(added), pending=pending)
+
+
+@router.delete("/{event_id}/participants/{user_id}", status_code=204)
+async def drop_participant(
+    event_id: UUID, user_id: UUID,
+    me: User = Depends(current_user), db: AsyncSession = Depends(get_db),
+):
+    """Убрать человека с мероприятия. Организатора убрать нельзя."""
+    ev = await db.get(Event, event_id)
+    if ev is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "мероприятие не найдено")
+    out = await to_out(db, ev, me)
+    if not out.can_edit:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "нет прав менять состав")
+    if user_id == ev.creator_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "организатора убрать нельзя")
+
+    part = await my_part(db, event_id, user_id)
+    if part is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "участник не найден")
+
+    was_going = part.status is RsvpStatus.going
+    await db.delete(part)
+    await db.flush()
+    await svc.recount(db, ev)
+
+    # освободилось место — двигаем очередь
+    if was_going:
+        for cand in await svc.promote_waitlist(db, ev):
+            await enqueue(db, cand.user_id, "waitlist.promoted",
+                          {"title": ev.title, "when_ts": when_of(ev), "event_id": str(ev.id)})
+
+    await enqueue(db, user_id, "event.removed", {"title": ev.title, "event_id": str(ev.id)})
+    await db.commit()
 
 
 @router.post("/{event_id}/rsvp", response_model=EventOut)

@@ -709,3 +709,42 @@ html.theming,body.theming,body.theming *{
 #strip{min-height:40vh}
 @keyframes stripIn{from{opacity:0}to{opacity:1}}
 #strip.swap{animation:stripIn .26s ease both}
+
+
+/* ==== плавное появление содержимого ====
+
+   Данные приезжают уже после того, как вкладка нарисована, поэтому раньше
+   строки резко «выпадали» на готовый экран. Теперь место под них занимает
+   скелетон той же высоты, а сами строки проявляются каскадом. */
+
+.rise{animation:rise .34s cubic-bezier(.32,.72,0,1) both}
+
+@keyframes shimmer{0%{opacity:.45}50%{opacity:.85}100%{opacity:.45}}
+.sk{pointer-events:none;animation:rise .3s cubic-bezier(.32,.72,0,1) both}
+.sk-b,.sk-l,.sk-blk{background:var(--bg2);animation:shimmer 1.25s ease-in-out infinite}
+.sk-b{border-radius:50%}
+.sk-l{height:11px;border-radius:6px;margin:5px 0}
+.sk-l.w60{width:60%}
+.sk-l.w35{width:35%}
+.dsk{display:flex;flex-direction:column;gap:12px;padding:16px 16px 0}
+.sk-blk{border-radius:14px}
+
+/* клетки месяца проявляются построчно, не по одной */
+@keyframes cellIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.cell-in{animation:cellIn .3s cubic-bezier(.32,.72,0,1) both}
+
+/* ==== приглашение в группу ==== */
+.row.inv{flex-wrap:wrap;cursor:default}
+.invbtns{display:flex;gap:8px;width:100%;padding-top:9px}
+.invbtns button{flex:1;padding:9px 0;border:none;border-radius:11px;cursor:pointer;
+  font-family:inherit;font-size:13px;font-weight:650;background:var(--bg2);color:var(--text);
+  transition:transform .14s,filter .18s}
+.invbtns button:active{transform:scale(.97)}
+.invbtns button:disabled{opacity:.5}
+.invbtns .going.on{background:var(--accept);color:#fff}
+.invbtns .declined{color:var(--decline)}
+
+/* подтверждение удаления прямо в строке участника */
+.wdrop{display:flex;gap:4px;flex:0 0 auto}
+.kick.yes{color:var(--decline);background:color-mix(in srgb,var(--decline) 14%,transparent)}
+.kick.no{color:var(--hint)}

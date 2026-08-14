@@ -34,14 +34,16 @@ const fullName = (u: { first_name: string; last_name?: string | null }) =>
 const initials = (u: { first_name: string; last_name?: string | null }) =>
   fullName(u).slice(0, 1).toUpperCase() || "?";
 
-interface Props { event: Event; onClose(): void }
+interface Props { event: Event; onClose(): void; onChanged?(): void }
 
-export function WhoIsGoing({ event, onClose }: Props) {
+export function WhoIsGoing({ event, onClose, onChanged }: Props) {
   const { close, cls } = useSheet(onClose);
   const [rows, setRows] = useState<Participant[]>([]);
   const [pending, setPending] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // кого именно убираем: подтверждение прямо в строке, без отдельного окна
+  const [dropping, setDropping] = useState<string | null>(null);
 
   useEffect(() => {
     api.participants(event.id)
@@ -109,6 +111,38 @@ export function WhoIsGoing({ event, onClose }: Props) {
                   <span className="wtime" title="во сколько придёт">
                     {at}
                   </span>
+                )}
+
+                {event.can_edit && p.user.id !== event.creator_id && (
+                  dropping === p.user.id ? (
+                    <span className="wdrop">
+                      <button className="kick no" onClick={() => setDropping(null)}>↩</button>
+                      <button
+                        className="kick yes"
+                        onClick={async () => {
+                          try {
+                            await api.dropParticipant(event.id, p.user.id);
+                            setRows((prev) => prev.filter((r) => r.user.id !== p.user.id));
+                            onChanged?.();
+                          } catch (e) {
+                            setError(e instanceof Error ? e.message : "не удалось убрать");
+                          } finally {
+                            setDropping(null);
+                          }
+                        }}
+                      >
+                        ✓
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      className="kick"
+                      title="Убрать с мероприятия"
+                      onClick={() => setDropping(p.user.id)}
+                    >
+                      ✕
+                    </button>
+                  )
                 )}
               </div>
             );

@@ -1,4 +1,5 @@
 import { BottomBar } from "../components/BottomBar";
+import { SkeletonDay } from "../components/Skeleton";
 import { Icon } from "../components/Icon";
 import { hm, plural, sameDay } from "../lib/date";
 import { conflictsOn, onDay, span } from "../lib/conflicts";
@@ -16,6 +17,7 @@ interface Props {
   onOpenEvent(e: Event): void;
   onPickDay(): void;
   onCreate(): void;
+  loading?: boolean;
 }
 
 export function DayView(p: Props) {
@@ -27,11 +29,13 @@ export function DayView(p: Props) {
     return (
       <>
         <div className="dscroll" id="dayScroll">
-          <div className="empty">
-            <div>🗓</div>
-            В этот день мероприятий нет<br />
-            <span style={{ fontSize: 12 }}>Свободно весь день</span>
-          </div>
+          {p.loading ? <SkeletonDay /> : (
+            <div className="empty">
+              <div>🗓</div>
+              В этот день мероприятий нет<br />
+              <span style={{ fontSize: 12 }}>Свободно весь день</span>
+            </div>
+          )}
         </div>
         <BottomBar label="Выбрать день" onMain={p.onPickDay} onCreate={p.onCreate} />
       </>
@@ -127,13 +131,14 @@ export function DayView(p: Props) {
                     <div className="now" style={{ top: y(+now) }} />
                   )}
 
-                  {placed.map(({ e, s, en, lane }) => {
+                  {placed.map(({ e, s, en, lane }, bi) => {
                     const h = Math.max(38, y(en) - y(s) - 4);
                     return (
                       <div
                         key={e.id}
-                        className={`blk s-${visualStatus(e)}`}
+                        className={`blk rise s-${visualStatus(e)}`}
                         style={{
+                          animationDelay: `${bi * 45}ms`,
                           top: y(s), height: h,
                           left: `calc(${lane * width}% + 6px)`,
                           width: `calc(${width}% - 12px)`,

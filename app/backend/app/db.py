@@ -26,6 +26,10 @@ async def init_db() -> None:
     alembic init migrations && alembic revision --autogenerate -m "init".
     """
     from . import models  # noqa: F401
+    from .migrate import ensure_schema
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # create_all добавляет только новые таблицы; недостающие колонки
+        # в уже существующих доводим отдельно
+        await ensure_schema(conn)

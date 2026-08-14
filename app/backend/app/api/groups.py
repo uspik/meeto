@@ -9,7 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..db import get_db
 from ..deps import current_user, is_owner, membership, require_group
-from ..models import Group, GroupInvite, GroupMember, GroupRole, PendingInvite, User
+from ..models import (
+    Group, GroupInvite, GroupMember, GroupRole, MembershipState, PendingInvite, User,
+)
 from ..schemas import GroupIn, GroupOut, InviteOut, InviteResult, MemberOut, MembersIn
 from ..services import invites as inv
 from ..services.notify import enqueue
@@ -19,7 +21,9 @@ router = APIRouter(prefix="/groups", tags=["groups"])
 
 async def _out(db: AsyncSession, group: Group, me: User) -> GroupOut:
     cnt = await db.execute(
-        select(func.count()).select_from(GroupMember).where(GroupMember.group_id == group.id)
+        select(func.count()).select_from(GroupMember)
+        .where(GroupMember.group_id == group.id,
+               GroupMember.state == MembershipState.active.value)
     )
     mem = await membership(db, group.id, me.id)
     return GroupOut(
@@ -34,10 +38,48 @@ async def my_groups(me: User = Depends(current_user), db: AsyncSession = Depends
     res = await db.execute(
         select(Group)
         .join(GroupMember, GroupMember.group_id == Group.id)
-        .where(GroupMember.user_id == me.id, Group.deleted_at.is_(None))
+        .where(GroupMember.user_id == me.id,
+               GroupMember.state == MembershipState.active.value,
+               Group.deleted_at.is_(None))
         .order_by(Group.created_at)
     )
     return [await _out(db, g, me) for g in res.scalars().all()]
+
+
+@router.get("/invitations", response_model=list[GroupOut])
+async def invitations(me: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
+    """Куда позвали, но вы ещё не ответили."""
+    res = await db.execute(
+        select(Group)
+        .join(GroupMember, GroupMember.group_id == Group.id)
+        .where(GroupMember.user_id == me.id,
+               GroupMember.state == MembershipState.pending.value,
+               Group.deleted_at.is_(None))
+        .order_by(Group.created_at)
+    )
+    return [await _out(db, g, me) for g in res.scalars().all()]
+
+
+@router.post("/{group_id}/accept", response_model=GroupOut)
+async def accept_invitation(
+    group_id: UUID, me: User = Depends(current_user), db: AsyncSession = Depends(get_db)
+):
+    group, member = await require_group(db, group_id, me, allow_pending=True)
+    member.state = MembershipState.active.value
+    await enqueue(db, group.owner_id, "group.joined",
+                  {"title": group.title, "who": me.display_name},
+                  dedup_key=f"joined:{group_id}:{me.id}")
+    await db.commit()
+    return await _out(db, group, me)
+
+
+@router.post("/{group_id}/decline", status_code=204)
+async def decline_invitation(
+    group_id: UUID, me: User = Depends(current_user), db: AsyncSession = Depends(get_db)
+):
+    _, member = await require_group(db, group_id, me, allow_pending=True)
+    await db.delete(member)
+    await db.commit()
 
 
 @router.post("", response_model=GroupOut, status_code=201)
@@ -80,7 +122,11 @@ async def remove(group_id: UUID, me: User = Depends(current_user), db: AsyncSess
 async def members(group_id: UUID, me: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
     await require_group(db, group_id, me)
     res = await db.execute(
-        select(GroupMember).where(GroupMember.group_id == group_id).order_by(GroupMember.joined_at)
+        select(GroupMember)
+        .where(GroupMember.group_id == group_id,
+               GroupMember.state.in_([MembershipState.active.value,
+                                      MembershipState.pending.value]))
+        .order_by(GroupMember.joined_at)
     )
     return list(res.scalars().all())
 
@@ -111,10 +157,13 @@ async def add_members(
             continue
         if await db.get(User, uid_) is None:
             continue
-        member = GroupMember(group_id=group_id, user_id=uid_, role=body.role, invited_by=me.id)
+        # человека не зачисляем молча: он должен согласиться
+        member = GroupMember(group_id=group_id, user_id=uid_, role=body.role,
+                             invited_by=me.id, state=MembershipState.pending.value)
         db.add(member)
         added.append(member)
-        await enqueue(db, uid_, "group.invited", {"title": group.title, "who": me.display_name},
+        await enqueue(db, uid_, "group.invited",
+                      {"title": group.title, "who": me.display_name, "group_id": str(group_id)},
                       dedup_key=f"group-add:{group_id}:{uid_}")
 
     await inv.remember_contact(db, me.id, ids)
@@ -283,7 +332,8 @@ async def accept(code: str, me: User = Depends(current_user), db: AsyncSession =
 
     if await membership(db, group.id, me.id) is None:
         db.add(GroupMember(group_id=group.id, user_id=me.id,
-                           role=invite.role_on_join, invited_by=invite.created_by))
+                           role=invite.role_on_join, invited_by=invite.created_by,
+                           state=MembershipState.active.value))
         invite.uses += 1
         await enqueue(db, group.owner_id, "group.invited",
                       {"title": group.title, "who": me.display_name})

@@ -14,7 +14,10 @@ export interface Group {
   owner_id: string; my_role?: GroupRole | null; members_count: number;
 }
 
-export interface Member { user: User; role: GroupRole; joined_at: string }
+/** state: active — в группе, pending — позвали, ответа ещё нет. */
+export interface Member {
+  user: User; role: GroupRole; joined_at: string; state?: "active" | "pending";
+}
 
 export interface Participant {
   user: User;

@@ -1,5 +1,6 @@
 import { BottomBar } from "../components/BottomBar";
 import { EventRow } from "../components/EventRow";
+import { SkeletonRows } from "../components/Skeleton";
 import { MN, WD, addDays, sameDay } from "../lib/date";
 import type { Event } from "../lib/types";
 
@@ -15,6 +16,7 @@ interface Props {
   onPeriod(p: Period): void;
   onOpenEvent(e: Event): void;
   onCreate(): void;
+  loading?: boolean;
 }
 
 export function ListView(p: Props) {
@@ -23,6 +25,7 @@ export function ListView(p: Props) {
   );
 
   let last = "";
+  let i = 0;
   const blocks: JSX.Element[] = [];
   for (const e of sorted) {
     const start = new Date(e.starts_at);
@@ -40,7 +43,7 @@ export function ListView(p: Props) {
         </div>,
       );
     }
-    blocks.push(<EventRow key={e.id} event={e} onOpen={p.onOpenEvent} />);
+    blocks.push(<EventRow key={e.id} event={e} index={i++} onOpen={p.onOpenEvent} />);
   }
 
   return (
@@ -57,9 +60,11 @@ export function ListView(p: Props) {
         ))}
       </div>
       <div className="list" id="listScroll">
-        {blocks.length ? blocks : (
+        {p.loading && blocks.length === 0 && <SkeletonRows rows={4} />}
+        {!p.loading && blocks.length === 0 && (
           <div className="empty"><div>🗓</div>За этот период мероприятий нет</div>
         )}
+        {blocks}
       </div>
       <BottomBar label="Новое мероприятие" onMain={p.onCreate} />
     </>

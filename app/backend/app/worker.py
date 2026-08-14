@@ -11,12 +11,13 @@ from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import func, select
 
 from .config import settings
 from .db import SessionLocal
 from .models import Event, EventStatus, Outbox, Participant, RsvpStatus, User
-from .services.notify import enqueue, render
+from .services.notify import actions_for, enqueue, render
 
 log = logging.getLogger("meeto.worker")
 
@@ -39,7 +40,16 @@ async def send_due(bot: Bot) -> None:
                 item.state = "cancelled"
                 continue
             try:
-                await bot.send_message(user.tg_id, render(item.type, item.payload, user.timezone))
+                buttons = actions_for(item.type, item.payload)
+                markup = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text=label, callback_data=data)
+                    for label, data in buttons
+                ]]) if buttons else None
+                await bot.send_message(
+                    user.tg_id,
+                    render(item.type, item.payload, user.timezone),
+                    reply_markup=markup,
+                )
                 item.state, item.sent_at = "sent", datetime.now(timezone.utc)
             except TelegramRetryAfter as exc:
                 item.scheduled_at = now + timedelta(seconds=exc.retry_after)

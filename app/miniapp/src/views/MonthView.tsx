@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { EventRow } from "../components/EventRow";
 import { BottomBar } from "../components/BottomBar";
+import { SkeletonRows } from "../components/Skeleton";
 import { Icon } from "../components/Icon";
 import { MN, WD, dstr, mondayOf, plural, sameDay } from "../lib/date";
 import { onDay } from "../lib/conflicts";
@@ -15,6 +16,7 @@ interface Props {
   onOpenDay(): void;
   onOpenEvent(e: Event): void;
   onCreate(): void;
+  loading?: boolean;
 }
 
 export function MonthView(p: Props) {
@@ -58,15 +60,17 @@ export function MonthView(p: Props) {
       <div className="mscroll" ref={scroller}>
         <div className="wd">{WD.map((w) => <span key={w}>{w}</span>)}</div>
         <div className="month">
-          {cells.map(({ d, evs, shown }) => (
+          {cells.map(({ d, evs, shown }, ci) => (
             <div
               key={d.toISOString()}
+              style={{ animationDelay: `${Math.floor(ci / 7) * 40}ms` }}
               className={[
                 "cell",
                 d.getMonth() !== p.cursor.getMonth() ? "out" : "",
                 (d.getDay() + 6) % 7 > 4 ? "we" : "",
                 sameDay(d, p.today) ? "today" : "",
                 sameDay(d, p.selected) ? "sel" : "",
+                "cell-in",
               ].filter(Boolean).join(" ")}
               onClick={() => (sameDay(d, p.selected) ? p.onOpenDay() : p.onSelect(d))}
             >
@@ -91,7 +95,9 @@ export function MonthView(p: Props) {
               ? ` · ${dayEvents.length} ${plural(dayEvents.length, "мероприятие", "мероприятия", "мероприятий")}`
               : ""}
           </div>
-          {dayEvents.length === 0 ? (
+          {p.loading && dayEvents.length === 0 ? (
+            <SkeletonRows rows={2} />
+          ) : dayEvents.length === 0 ? (
             <div style={{ color: "var(--hint)", fontSize: 13, padding: "4px 2px 10px" }}>
               Ничего не запланировано
             </div>

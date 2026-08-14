@@ -18,7 +18,9 @@ TEMPLATES = {
     "waitlist.promoted": "\U0001f389 Место освободилось: <b>{title}</b>\n{when}",
     "quorum.reached": "✅ Кворум набран: <b>{title}</b> — {going}/{quorum}",
     "quorum.failed": "\U0001f7e0 Кворум не набран, мероприятие отменено: <b>{title}</b>",
-    "group.invited": "\U0001f465 Вас добавили в группу <b>{title}</b>",
+    "event.removed": "\u274c Вас убрали с мероприятия <b>{title}</b>",
+    "group.invited": "\U0001f465 {who} зовёт вас в группу <b>{title}</b>",
+    "group.joined": "\u2705 {who} принял приглашение в <b>{title}</b>",
 }
 
 
@@ -88,3 +90,21 @@ async def enqueue(
             scheduled_at=scheduled_at or datetime.now(timezone.utc),
         )
     )
+
+
+# Уведомления, на которые можно ответить прямо из чата.
+# Кнопки собирает воркер, нажатия обрабатывает бот — процессы разные,
+# поэтому связь только через callback_data.
+ACTIONS: dict[str, list[tuple[str, str]]] = {
+    "event.invited": [("Иду", "going"), ("Под вопросом", "maybe"), ("Не иду", "declined")],
+    "event.reminder": [("Иду", "going"), ("Не иду", "declined")],
+    "waitlist.promoted": [("Иду", "going"), ("Не иду", "declined")],
+}
+
+
+def actions_for(kind: str, payload: dict) -> list[tuple[str, str]]:
+    """Подписи кнопок и их callback_data."""
+    event_id = payload.get("event_id")
+    if not event_id:
+        return []
+    return [(label, f"rsvp:{event_id}:{status}") for label, status in ACTIONS.get(kind, [])]

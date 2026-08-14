@@ -19,9 +19,15 @@ const ASSIGNABLE: GroupRole[] = ["admin", "member"];
 const fullName = (u: { first_name: string; last_name?: string | null }) =>
   [u.first_name, u.last_name].filter(Boolean).join(" ");
 
-interface Props { groups: Group[]; meId: string; onChanged(): void }
+interface Props {
+  groups: Group[];
+  /** куда позвали, но ответа ещё нет */
+  invitations: Group[];
+  meId: string;
+  onChanged(): void;
+}
 
-export function GroupsView({ groups, meId, onChanged }: Props) {
+export function GroupsView({ groups, invitations, meId, onChanged }: Props) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [creating, setCreating] = useState(false);
@@ -34,6 +40,9 @@ export function GroupsView({ groups, meId, onChanged }: Props) {
   const [confirmRotate, setConfirmRotate] = useState(false);
   const [copied, setCopied] = useState(false);
   const [pending, setPending] = useState<string[]>([]);
+  // список участников подгружается отдельным запросом: пока он идёт,
+  // показываем скелетоны, иначе строки «выпрыгивают» на готовой странице
+  const [loadingMembers, setLoadingMembers] = useState(false);
 
   const group = groups.find((g) => g.id === openId) ?? null;
   const iAmBoss = group?.my_role === "owner" || group?.my_role === "admin";
@@ -42,7 +51,12 @@ export function GroupsView({ groups, meId, onChanged }: Props) {
     if (!openId) return;
     setConfirmRotate(false);
     setCopied(false);
-    api.members(openId).then(setMembers).catch(() => setMembers([]));
+    setMembers([]);
+    setLoadingMembers(true);
+    api.members(openId)
+      .then(setMembers)
+      .catch(() => setMembers([]))
+      .finally(() => setLoadingMembers(false));
     api.groupPending(openId).then(setPending).catch(() => setPending([]));
     // ссылка постоянная: показываем ту же, что и в прошлый раз
     api.invite(openId).then((r) => setInvite(r.url)).catch(() => setInvite(null));
@@ -82,7 +96,50 @@ export function GroupsView({ groups, meId, onChanged }: Props) {
     return (
       <>
         <div className="list gpage" id="listScroll" key="all">
-          {groups.length === 0 && !creating && (
+          {invitations.length > 0 && (
+            <>
+              <div className="wsec" style={{ margin: "4px 0 6px" }}>Вас приглашают</div>
+              {invitations.map((g, i) => (
+                <div key={g.id} className="row inv rise" style={{ animationDelay: `${i * 45}ms` }}>
+                  <span className="gav" style={{ background: g.color }}>
+                    {g.title.slice(0, 1).toUpperCase()}
+                  </span>
+                  <div className="meta">
+                    <div className="rt"><em>{g.title}</em></div>
+                    <div className="rs">
+                      {g.members_count}{" "}
+                      {plural(g.members_count, "участник", "участника", "участников")}
+                    </div>
+                  </div>
+                  <div className="invbtns">
+                    <button
+                      className="declined"
+                      disabled={busy}
+                      onClick={() => guard(async () => { await api.declineGroup(g.id); onChanged(); })}
+                    >
+                      Отказаться
+                    </button>
+                    <button
+                      className="going on"
+                      disabled={busy}
+                      onClick={() => guard(async () => {
+                        const joined = await api.acceptGroup(g.id);
+                        onChanged();
+                        setOpenId(joined.id);
+                      })}
+                    >
+                      Вступить
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {groups.length > 0 && (
+                <div className="wsec" style={{ margin: "14px 0 6px" }}>Мои группы</div>
+              )}
+            </>
+          )}
+
+          {groups.length === 0 && invitations.length === 0 && !creating && (
             <div className="empty">
               <div>👥</div>
               Групп пока нет.<br />
@@ -90,8 +147,13 @@ export function GroupsView({ groups, meId, onChanged }: Props) {
             </div>
           )}
 
-          {groups.map((g) => (
-            <div key={g.id} className="row" onClick={() => setOpenId(g.id)}>
+          {groups.map((g, i) => (
+            <div
+              key={g.id}
+              className="row rise"
+              style={{ animationDelay: `${(invitations.length + i) * 45}ms` }}
+              onClick={() => setOpenId(g.id)}
+            >
               <span className="gav" style={{ background: g.color }}>
                 {g.title.slice(0, 1).toUpperCase()}
               </span>
@@ -143,7 +205,10 @@ export function GroupsView({ groups, meId, onChanged }: Props) {
   }
 
   /* ---------- карточка группы ---------- */
+  // в подборе людей прячем и тех, кто уже в группе, и тех, кто ещё думает
   const existing = new Set(members.map((m) => m.user.id));
+  const joined = members.filter((m) => m.state !== "pending");
+  const awaiting = members.filter((m) => m.state === "pending");
 
   return (
     <>
@@ -159,14 +224,25 @@ export function GroupsView({ groups, meId, onChanged }: Props) {
           <div>
             <div className="ttl">{group.title}</div>
             <div className="sub">
-              {members.length} {plural(members.length, "участник", "участника", "участников")}
+              {joined.length} {plural(joined.length, "участник", "участника", "участников")}
+              {awaiting.length > 0 && ` · ${awaiting.length} не ответили`}
               {pending.length > 0 && ` · ${pending.length} ждут первого входа`}
             </div>
           </div>
         </div>
 
-        {members.map((m) => (
-          <div key={m.user.id} className="row">
+        {loadingMembers && [0, 1, 2].map((i) => (
+          <div key={`sk${i}`} className="row sk" style={{ animationDelay: `${i * 90}ms` }}>
+            <span className="pav sk-b" />
+            <div className="meta">
+              <div className="sk-l w60" />
+              <div className="sk-l w35" />
+            </div>
+          </div>
+        ))}
+
+        {joined.map((m, i) => (
+          <div key={m.user.id} className="row rise" style={{ animationDelay: `${i * 40}ms` }}>
             <span className="pav" style={{ backgroundImage: m.user.photo_url ? `url(${m.user.photo_url})` : undefined }}>
               {m.user.photo_url ? "" : fullName(m.user).slice(0, 1).toUpperCase()}
             </span>
@@ -204,6 +280,40 @@ export function GroupsView({ groups, meId, onChanged }: Props) {
             )}
           </div>
         ))}
+
+        {awaiting.length > 0 && (
+          <>
+            <div className="wsec">Приглашены, ждём ответа</div>
+            {awaiting.map((m, i) => (
+              <div key={m.user.id} className="wrow rise" style={{ animationDelay: `${i * 40}ms` }}>
+                <span
+                  className="pav"
+                  style={{ backgroundImage: m.user.photo_url ? `url(${m.user.photo_url})` : undefined }}
+                >
+                  {m.user.photo_url ? "" : fullName(m.user).slice(0, 1).toUpperCase()}
+                </span>
+                <div className="wmeta">
+                  <div className="wname"><em>{fullName(m.user)}</em></div>
+                  <div className="wsub">приглашение отправлено</div>
+                </div>
+                {iAmBoss && (
+                  <button
+                    className="kick"
+                    title="Отозвать приглашение"
+                    onClick={() =>
+                      guard(async () => {
+                        await api.removeMember(group.id, m.user.id);
+                        setMembers(await api.members(group.id));
+                      })
+                    }
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+          </>
+        )}
 
         {pending.length > 0 && (
           <>
@@ -330,6 +440,7 @@ export function GroupsView({ groups, meId, onChanged }: Props) {
         <PeoplePicker
           title="Кого добавить"
           exclude={existing}
+          excludeHandles={pending}
           invite={invite ? { url: invite, text: `Присоединяйтесь к группе «${group.title}»` } : null}
           onClose={() => setPicker(false)}
           onDone={(users, usernames) =>
