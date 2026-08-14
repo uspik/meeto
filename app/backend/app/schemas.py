@@ -50,6 +50,9 @@ class GroupOut(ORM):
     owner_id: UUID
     my_role: GroupRole | None = None
     members_count: int = 0
+    # выросла из чата Telegram: состав пополняется кнопкой в чате,
+    # а уведомления о мероприятиях уходят туда же
+    from_chat: bool = False
 
 
 class InviteOut(BaseModel):

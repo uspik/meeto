@@ -12,6 +12,8 @@ export interface User {
 export interface Group {
   id: string; title: string; description?: string | null; color: string;
   owner_id: string; my_role?: GroupRole | null; members_count: number;
+  /** выросла из чата Telegram: состав пополняется кнопкой в самом чате */
+  from_chat?: boolean;
 }
 
 /** state: active — в группе, pending — позвали, ответа ещё нет. */

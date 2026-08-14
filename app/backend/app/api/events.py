@@ -18,7 +18,7 @@ from ..schemas import (
 )
 from ..services import invites as inv
 from ..services import events as svc
-from ..services.notify import enqueue
+from ..services.notify import announce, enqueue
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -43,6 +43,16 @@ def when_of(ev: Event) -> str:
     для мероприятия, которое у него начинается в 19:00.
     """
     return aware(ev.starts_at).isoformat()
+
+
+def invite_payload(ev: Event) -> dict:
+    """Один и тот же набор полей для приглашения, правки и напоминания."""
+    return {
+        "title": ev.title,
+        "when_ts": when_of(ev),
+        "place": f"\n\U0001f4cd {ev.place}" if ev.place else "",
+        "event_id": str(ev.id),
+    }
 
 
 async def my_part(db: AsyncSession, event_id: UUID, user_id: UUID) -> Participant | None:
@@ -152,15 +162,16 @@ async def create(body: EventIn, me: User = Depends(current_user), db: AsyncSessi
                 GroupMember.state == MembershipState.active.value,
             )
         )).scalars().all()
+        # у группы из чата адресат один — сам чат; иначе пишем каждому
+        in_chat = await announce(db, ev, "event.invited",
+                                 invite_payload(ev), dedup_key=f"invited:{ev.id}")
         for uid_ in ids:
             if uid_ == me.id:
                 continue
             db.add(Participant(event_id=ev.id, user_id=uid_, status=RsvpStatus.invited))
-            await enqueue(db, uid_, "event.invited",
-                          {"title": ev.title, "when_ts": when_of(ev),
-                           "place": f"\n\U0001f4cd {ev.place}" if ev.place else "",
-                           "event_id": str(ev.id)},
-                          dedup_key=f"invited:{ev.id}:{uid_}")
+            if not in_chat:
+                await enqueue(db, uid_, "event.invited", invite_payload(ev),
+                              dedup_key=f"invited:{ev.id}:{uid_}")
     await db.commit()
     await db.refresh(ev)
     return await to_out(db, ev, me)
@@ -214,20 +225,18 @@ async def edit(
     if really_changed & SIGNIFICANT:
         # Тем, кто отказался или не ответил, правки безразличны.
         # Пишем идущим, стоящим в очереди и тем, кто под вопросом.
-        rows = (await db.execute(
-            select(Participant).where(
-                Participant.event_id == ev.id,
-                Participant.status.in_([
-                    RsvpStatus.going, RsvpStatus.waitlisted, RsvpStatus.maybe,
-                ]),
-            )
-        )).scalars().all()
-        for pt in rows:
-            if pt.user_id != me.id:
-                await enqueue(db, pt.user_id, "event.updated",
-                              {"title": ev.title, "when_ts": when_of(ev),
-                               "place": f"\n\U0001f4cd {ev.place}" if ev.place else "",
-                               "event_id": str(ev.id)})
+        if not await announce(db, ev, "event.updated", invite_payload(ev)):
+            rows = (await db.execute(
+                select(Participant).where(
+                    Participant.event_id == ev.id,
+                    Participant.status.in_([
+                        RsvpStatus.going, RsvpStatus.waitlisted, RsvpStatus.maybe,
+                    ]),
+                )
+            )).scalars().all()
+            for pt in rows:
+                if pt.user_id != me.id:
+                    await enqueue(db, pt.user_id, "event.updated", invite_payload(ev))
     await db.commit()
     await db.refresh(ev)
     return await to_out(db, ev, me)
@@ -247,12 +256,16 @@ async def cancel(
 
     ev.status = EventStatus.cancelled
     ev.cancel_reason = reason or None
-    rows = (await db.execute(select(Participant).where(Participant.event_id == ev.id))).scalars()
-    for pt in rows:
-        if pt.user_id != me.id:
-            await enqueue(db, pt.user_id, "event.cancelled",
-                          {"title": ev.title, "reason": reason or "", "event_id": str(ev.id)},
-                          dedup_key=f"cancelled:{ev.id}:{pt.user_id}")
+    payload = {"title": ev.title, "reason": reason or "", "event_id": str(ev.id)}
+    if not await announce(db, ev, "event.cancelled", payload,
+                          dedup_key=f"cancelled:{ev.id}"):
+        rows = (await db.execute(
+            select(Participant).where(Participant.event_id == ev.id)
+        )).scalars()
+        for pt in rows:
+            if pt.user_id != me.id:
+                await enqueue(db, pt.user_id, "event.cancelled", payload,
+                              dedup_key=f"cancelled:{ev.id}:{pt.user_id}")
     await db.commit()
     await db.refresh(ev)
     return await to_out(db, ev, me)

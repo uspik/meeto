@@ -234,6 +234,15 @@ export function GroupsView({ groups, invitations, meId, onChanged }: Props) {
           </div>
         </div>
 
+        {group.from_chat && (
+          <div className="note">
+            Группа связана с чатом Telegram. Анонсы, правки и напоминания
+            о мероприятиях уходят в чат, а попасть в состав можно кнопкой
+            «Я в деле» под сообщением бота — списка участников чата Telegram
+            боту не отдаёт.
+          </div>
+        )}
+
         {loadingMembers && [0, 1, 2].map((i) => (
           <div key={`sk${i}`} className="row sk" style={{ animationDelay: `${i * 90}ms` }}>
             <span className="pav sk-b" />

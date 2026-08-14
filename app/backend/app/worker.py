@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from .config import settings
 from .db import SessionLocal
 from .models import Event, EventStatus, Outbox, Participant, RsvpStatus, User
-from .services.notify import actions_for, enqueue, render
+from .services.notify import actions_for, announce, enqueue, render
 
 log = logging.getLogger("meeto.worker")
 
@@ -36,7 +36,10 @@ async def send_due(bot: Bot) -> None:
         )).all()
 
         for item, user in rows:
-            if user.is_bot_blocked:
+            # у сообщения в чат группы user_id — это автор, а не адресат:
+            # его личная блокировка бота отправке в чат не мешает
+            to_chat = item.chat_id is not None
+            if user.is_bot_blocked and not to_chat:
                 item.state = "cancelled"
                 continue
             try:
@@ -46,15 +49,20 @@ async def send_due(bot: Bot) -> None:
                     for label, data in buttons
                 ]]) if buttons else None
                 await bot.send_message(
-                    user.tg_id,
-                    render(item.type, item.payload, user.timezone),
+                    item.chat_id if to_chat else user.tg_id,
+                    # у чата своего часового пояса нет — берём пояс мероприятия
+                    render(item.type, item.payload,
+                           item.payload.get("tz") if to_chat else user.timezone,
+                           to_chat=to_chat),
                     reply_markup=markup,
                 )
                 item.state, item.sent_at = "sent", datetime.now(timezone.utc)
             except TelegramRetryAfter as exc:
                 item.scheduled_at = now + timedelta(seconds=exc.retry_after)
             except TelegramForbiddenError:
-                user.is_bot_blocked = True
+                # из чата бота выгнали или человек его заблокировал
+                if not to_chat:
+                    user.is_bot_blocked = True
                 item.state = "cancelled"
             except Exception as exc:  # noqa: BLE001
                 item.attempts += 1
@@ -79,19 +87,31 @@ async def plan_reminders() -> None:
                    Event.starts_at > now, Event.starts_at < now + timedelta(days=2))
         )).all()
 
+        # мероприятия группы из чата напоминают о себе один раз — в чате,
+        # а не письмом каждому идущему
+        announced: set = set()
+
         for ev, pt in rows:
             for lead in REMINDERS:
                 when = ev.starts_at - timedelta(minutes=lead)
                 if when <= now or when > now + timedelta(days=1):
                     continue
-                await enqueue(
-                    db, pt.user_id, "event.reminder",
-                    {"title": ev.title,
-                     "when_ts": ev.starts_at.isoformat(),
-                     "place": f"\n\U0001f4cd {ev.place}" if ev.place else "",
-                     "event_id": str(ev.id)},
-                    scheduled_at=when, dedup_key=f"reminder:{ev.id}:{pt.user_id}:{lead}",
-                )
+                payload = {
+                    "title": ev.title,
+                    "when_ts": ev.starts_at.isoformat(),
+                    "place": f"\n\U0001f4cd {ev.place}" if ev.place else "",
+                    "event_id": str(ev.id),
+                }
+                if (ev.id, lead) in announced:
+                    continue
+                if await announce(db, ev, "event.reminder", payload,
+                                  scheduled_at=when, dedup_key=f"reminder:{ev.id}:{lead}"):
+                    announced.add((ev.id, lead))
+                else:
+                    await enqueue(
+                        db, pt.user_id, "event.reminder", payload,
+                        scheduled_at=when, dedup_key=f"reminder:{ev.id}:{pt.user_id}:{lead}",
+                    )
                 try:
                     await db.commit()
                 except Exception:  # дубликат по dedup_key — так и задумано
@@ -129,10 +149,14 @@ async def resolve_quorum() -> None:
             elif ev.auto_cancel_on_quorum_fail:
                 ev.status = EventStatus.cancelled
                 ev.cancel_reason = f"Не набрался кворум ({ev.going_count} из {ev.quorum_min})"
-                for pt in parts:
-                    await enqueue(db, pt.user_id, "quorum.failed",
-                                  {"title": ev.title, "event_id": str(ev.id)},
-                                  dedup_key=f"quorum-fail:{ev.id}:{pt.user_id}")
+                # это уже не «состояние сбора», а отмена — про неё чат знать
+                # должен; кворум набран, наоборот, касается только идущих
+                payload = {"title": ev.title, "event_id": str(ev.id)}
+                if not await announce(db, ev, "quorum.failed", payload,
+                                      dedup_key=f"quorum-fail:{ev.id}"):
+                    for pt in parts:
+                        await enqueue(db, pt.user_id, "quorum.failed", payload,
+                                      dedup_key=f"quorum-fail:{ev.id}:{pt.user_id}")
         await db.commit()
 
 

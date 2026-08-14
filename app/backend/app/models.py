@@ -118,6 +118,9 @@ class Group(Base):
     avatar_url: Mapped[str | None] = mapped_column(Text)
     color: Mapped[str] = mapped_column(String(64), default="#5b8def")
     owner_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("users.id"))
+    # Группа, выросшая из чата Telegram. Один чат — одна группа; уникальность
+    # держим кодом, а не индексом: колонка добавляется в живую таблицу.
+    tg_chat_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
     member_defaults: Mapped[dict] = mapped_column(
         JSONType, default=lambda: {"events.create": False, "members.invite": True}
     )
@@ -248,6 +251,9 @@ class Outbox(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("users.id", ondelete="CASCADE"))
     type: Mapped[str] = mapped_column(String(64))
     payload: Mapped[dict] = mapped_column(JSONType, default=dict)
+    # Куда отправлять. Пусто — в личку user_id; заполнено — в чат группы,
+    # и тогда user_id значит лишь «от чьего имени», обычно организатор.
+    chat_id: Mapped[int | None] = mapped_column(BigInteger)
     dedup_key: Mapped[str | None] = mapped_column(String(200))
     scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     state: Mapped[str] = mapped_column(String(16), default="scheduled")

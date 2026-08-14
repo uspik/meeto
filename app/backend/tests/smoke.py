@@ -308,13 +308,20 @@ async def main() -> None:
             check("владелец выйти не может", r.status_code == 403, r.text[:150])
 
             print("\n=== шаблоны уведомлений ===")
-            from app.services.notify import TEMPLATES, render
+            from app.services.notify import CHAT_TEMPLATES, TEMPLATES, render
             broken = []
             for kind in TEMPLATES:
-                text = render(kind, {"title": "T", "when_ts": start.isoformat()}, "Europe/Moscow")
-                if "{" in text or "}" in text:
-                    broken.append(kind)
+                for to_chat in (False, True):
+                    text = render(kind, {"title": "T", "when_ts": start.isoformat()},
+                                  "Europe/Moscow", to_chat=to_chat)
+                    if "{" in text or "}" in text:
+                        broken.append(kind)
             check("ни один шаблон не отдаёт сырые скобки", not broken, str(broken))
+            check("в чате приглашение звучит не как личное",
+                  render("event.invited", {"title": "T"}, "UTC", to_chat=True)
+                  != render("event.invited", {"title": "T"}, "UTC"))
+            check("для чата отдельный текст есть только там, где он нужен",
+                  set(CHAT_TEMPLATES) <= set(TEMPLATES), str(set(CHAT_TEMPLATES) - set(TEMPLATES)))
             check("время подставилось",
                   "01:" in render("event.reminder",
                                   {"title": "T", "when_ts": "2026-08-12T22:16:00+00:00"},
@@ -465,6 +472,217 @@ async def main() -> None:
                   r.status_code == 201 and r.json()["added"] == 1, r.text[:200])
             r = await c.get(f"/events/{kid}", headers=HD)
             check("и он снова в списке", r.json()["my_status"] == "invited", r.text[:200])
+
+            print("\n=== группа из чата Telegram ===")
+            from app.db import SessionLocal as SL
+            from app.models import Group, GroupMember, Outbox
+            from app.services import chats
+            from sqlalchemy import select as sel
+
+            CHAT = -1001234567890
+
+            async def chat_notes(kind: str | None = None) -> list[Outbox]:
+                async with SL() as db:
+                    q = sel(Outbox).where(Outbox.chat_id == CHAT)
+                    if kind:
+                        q = q.where(Outbox.type == kind)
+                    return list((await db.execute(q)).scalars().all())
+
+            async with SL() as db:
+                grp = await chats.link_chat(
+                    db, chat_id=CHAT, title="Волейбол в чате",
+                    owner={"id": 1, "first_name": "Аня", "username": "аня"},
+                )
+                cgid = str(grp.id)
+                await db.commit()
+
+            r = await c.get("/groups", headers=H1)
+            mine = {g["title"]: g for g in r.json()}
+            check("группа завелась по названию чата", "Волейбол в чате" in mine, r.text[:200])
+            check("владелец чата — владелец группы",
+                  mine.get("Волейбол в чате", {}).get("my_role") == "owner")
+            check("в приложении видно, что группа из чата",
+                  mine.get("Волейбол в чате", {}).get("from_chat") is True)
+
+            r = await c.get("/groups", headers=H2)
+            check("кто кнопку не нажимал — не в группе",
+                  "Волейбол в чате" not in {g["title"] for g in r.json()})
+
+            async with SL() as db:
+                joined = await chats.join_chat_group(
+                    db, chat_id=CHAT,
+                    tg={"id": 2, "first_name": "Боря", "username": "боря"},
+                )
+                await db.commit()
+            check("«Я в деле» добавляет сразу, без подтверждения",
+                  joined is not None and joined[1] is True)
+            r = await c.get("/groups", headers=H2)
+            check("нажавший видит группу у себя",
+                  "Волейбол в чате" in {g["title"] for g in r.json()}, r.text[:200])
+
+            r = await c.post("/events", headers=H1, json={
+                "title": "Тренировка", "starts_at": (start + timedelta(days=5)).isoformat(),
+                "format": "offline", "place": "Зал", "group_id": cgid,
+                "invite_all_group": True,
+            })
+            check("мероприятие создаётся в группе чата", r.status_code == 201, r.text[:200])
+            cev = r.json()["id"]
+            check("анонс ушёл в чат одним сообщением",
+                  len(await chat_notes("event.invited")) == 1,
+                  str(len(await chat_notes("event.invited"))))
+            async with SL() as db:
+                personal = (await db.execute(
+                    sel(Outbox).where(Outbox.type == "event.invited", Outbox.chat_id.is_(None))
+                )).scalars().all()
+            dup = [p for p in personal if p.payload.get("event_id") == cev]
+            check("и в личку то же самое не дублируется", not dup, str(len(dup)))
+            note = (await chat_notes("event.invited"))[0]
+            check("в чат кладём пояс мероприятия — своего у чата нет",
+                  bool(note.payload.get("tz")), str(note.payload))
+
+            r = await c.patch(f"/events/{cev}", headers=H1, json={
+                "title": "Тренировка", "starts_at": (start + timedelta(days=5)).isoformat(),
+                "place": "Другой зал", "format": "offline",
+            })
+            check("правка тоже уходит в чат", len(await chat_notes("event.updated")) == 1)
+
+            r = await c.post(f"/events/{cev}/cancel?reason=дождь", headers=H1)
+            check("и отмена", len(await chat_notes("event.cancelled")) == 1, r.text[:150])
+
+            async with SL() as db:
+                left = await chats.leave_chat_group(db, chat_id=CHAT, tg_id=2)
+                await db.commit()
+            check("вышел из чата — вышел из группы", left is True)
+            r = await c.get("/groups", headers=H2)
+            check("группы у него больше нет",
+                  "Волейбол в чате" not in {g["title"] for g in r.json()})
+
+            async with SL() as db:
+                await chats.leave_chat_group(db, chat_id=CHAT, tg_id=1)
+                await db.commit()
+                still = (await db.execute(
+                    sel(GroupMember).where(GroupMember.group_id == grp.id)
+                )).scalars().all()
+            check("владельца выход из чата не выкидывает", len(still) == 1)
+
+            async with SL() as db:
+                await chats.rename_chat_group(db, chat_id=CHAT, title="Волейбол по вторникам")
+                await db.commit()
+            r = await c.get("/groups", headers=H1)
+            check("переименование чата переименовало группу",
+                  "Волейбол по вторникам" in {g["title"] for g in r.json()}, r.text[:200])
+
+            async with SL() as db:
+                await chats.unlink_chat(db, chat_id=CHAT)
+                await db.commit()
+            r = await c.get("/groups", headers=H1)
+            check("бота убрали из чата — группа пропала",
+                  "Волейбол по вторникам" not in {g["title"] for g in r.json()})
+
+            async with SL() as db:
+                again = await chats.link_chat(
+                    db, chat_id=CHAT, title="Волейбол по вторникам",
+                    owner={"id": 1, "first_name": "Аня", "username": "аня"},
+                )
+                await db.commit()
+            check("вернули бота — поднялась та же группа, а не вторая",
+                  str(again.id) == cgid, f"{again.id} != {cgid}")
+            async with SL() as db:
+                copies = (await db.execute(
+                    sel(Group).where(Group.tg_chat_id == CHAT)
+                )).scalars().all()
+            check("на чат по-прежнему одна группа", len(copies) == 1, str(len(copies)))
+
+            print("\n=== бот в чате: разбор обновлений Telegram ===")
+            # Проверяем не сервис, а проводку: что обработчики вообще
+            # вызываются на настоящих объектах aiogram. Сеть подменяем —
+            # Bot.__call__ вместо запроса складывает метод в список.
+            from aiogram import Bot
+            from aiogram.methods import (
+                AnswerCallbackQuery, GetChatAdministrators, SendMessage,
+            )
+            from aiogram.types import (
+                CallbackQuery, Chat, ChatMemberLeft, ChatMemberMember, ChatMemberOwner,
+                ChatMemberUpdated, Message as TgMessage, Update, User as TgUser,
+            )
+            from app.bot import dp
+
+            CHAT2 = -1009999000
+            BOT_USER = TgUser(id=777, is_bot=True, first_name="Meeto")
+            TG_ANYA = TgUser(id=1, is_bot=False, first_name="Аня", username="аня")
+            TG_BORYA = TgUser(id=2, is_bot=False, first_name="Боря", username="боря")
+            tgchat = Chat(id=CHAT2, type="supergroup", title="Планёрка")
+            sent: list = []
+
+            class FakeBot(Bot):
+                async def __call__(self, method, request_timeout=None):
+                    sent.append(method)
+                    if isinstance(method, GetChatAdministrators):
+                        return [ChatMemberOwner(user=TG_ANYA, status="creator",
+                                                is_anonymous=False)]
+                    if isinstance(method, SendMessage):
+                        return TgMessage(message_id=1, date=datetime.now(timezone.utc),
+                                         chat=tgchat, from_user=BOT_USER, text=method.text)
+                    return True
+
+            fake = FakeBot("123456:TEST-TOKEN")
+
+            def membership_change(old: str, new: str, who: TgUser) -> Update:
+                kind = {"left": ChatMemberLeft, "member": ChatMemberMember}
+                return Update(update_id=len(sent) + 1, my_chat_member=ChatMemberUpdated(
+                    chat=tgchat, from_user=who, date=datetime.now(timezone.utc),
+                    old_chat_member=kind[old](user=BOT_USER, status=old),
+                    new_chat_member=kind[new](user=BOT_USER, status=new)))
+
+            await dp.feed_update(fake, membership_change("left", "member", TG_BORYA))
+            async with SL() as db:
+                g2 = (await db.execute(sel(Group).where(Group.tg_chat_id == CHAT2))).scalars().first()
+                owner = (await db.execute(sel(GroupMember).where(
+                    GroupMember.group_id == g2.id))).scalars().all() if g2 else []
+            check("бота добавили в чат — группа завелась", g2 is not None and g2.title == "Планёрка")
+            check("владельцем стал создатель чата, а не тот, кто добавил бота",
+                  len(owner) == 1 and str(owner[0].role).endswith("owner"), str(owner))
+
+            hello = [m for m in sent if isinstance(m, SendMessage)]
+            check("бот поздоровался в чате", len(hello) == 1)
+            row = hello[0].reply_markup.inline_keyboard[0] if hello else []
+            check("кнопка «Я в деле» на месте", len(row) == 2 and row[0].callback_data.startswith("join:"))
+            check("вторая кнопка — ссылка, а не web_app (в чатах он запрещён)",
+                  bool(row[1].url) and row[1].web_app is None)
+
+            await dp.feed_update(fake, Update(update_id=91, callback_query=CallbackQuery(
+                id="cb1", from_user=TG_BORYA, chat_instance="ci",
+                message=TgMessage(message_id=1, date=datetime.now(timezone.utc),
+                                  chat=tgchat, from_user=BOT_USER, text=hello[0].text),
+                data=row[0].callback_data)))
+            async with SL() as db:
+                joined2 = (await db.execute(sel(GroupMember).where(
+                    GroupMember.group_id == g2.id))).scalars().all()
+            replies = [m for m in sent if isinstance(m, AnswerCallbackQuery)]
+            check("нажатие кнопки добавило человека", len(joined2) == 2, str(len(joined2)))
+            check("и он получил подтверждение",
+                  bool(replies) and "Планёрка" in (replies[-1].text or ""),
+                  str(replies[-1].text if replies else None))
+
+            await dp.feed_update(fake, Update(update_id=92, message=TgMessage(
+                message_id=2, date=datetime.now(timezone.utc), chat=tgchat,
+                from_user=TG_ANYA, new_chat_title="Планёрка по понедельникам")))
+            await dp.feed_update(fake, Update(update_id=93, message=TgMessage(
+                message_id=3, date=datetime.now(timezone.utc), chat=tgchat,
+                from_user=TG_BORYA, left_chat_member=TG_BORYA)))
+            async with SL() as db:
+                g2 = (await db.execute(sel(Group).where(Group.tg_chat_id == CHAT2))).scalars().first()
+                left2 = (await db.execute(sel(GroupMember).where(
+                    GroupMember.group_id == g2.id))).scalars().all()
+            check("служебное «переименовали чат» доехало до группы",
+                  g2.title == "Планёрка по понедельникам", g2.title)
+            check("служебное «вышел из чата» убрало из группы", len(left2) == 1)
+
+            await dp.feed_update(fake, membership_change("member", "left", TG_ANYA))
+            async with SL() as db:
+                g2 = (await db.execute(sel(Group).where(Group.tg_chat_id == CHAT2))).scalars().first()
+            check("бота убрали — группа удалена", g2.deleted_at is not None)
+            await fake.session.close()
 
             print("\n=== кнопки прямо в уведомлении ===")
             from app.services.notify import actions_for

@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Outbox
+from ..models import Event, Group, Outbox
 
 # Тексты собираются здесь, чтобы бот и воркер не расходились
 TEMPLATES = {
@@ -22,6 +22,14 @@ TEMPLATES = {
     "event.removed": "\u274c Вас убрали с мероприятия <b>{title}</b>",
     "group.invited": "\U0001f465 {who} зовёт вас в группу <b>{title}</b>",
     "group.joined": "\u2705 {who} принял приглашение в <b>{title}</b>",
+}
+
+# В общий чат те же события звучат иначе: «вас пригласили» там обращено
+# ко всем сразу. Чего нет в этом словаре — берётся из TEMPLATES как есть.
+CHAT_TEMPLATES = {
+    "event.invited": "\U0001f4c5 Новое мероприятие: <b>{title}</b>\n{when}{place}"
+                     "\n\nОтвечайте кнопками ниже — я запишу.",
+    "event.reminder": "\u23f0 Напоминаю: <b>{title}</b>\n{when}{place}",
 }
 
 
@@ -59,8 +67,8 @@ class _Blank(dict):
         return ""
 
 
-def render(kind: str, payload: dict, tz_name: str = "UTC") -> str:
-    tpl = TEMPLATES.get(kind)
+def render(kind: str, payload: dict, tz_name: str = "UTC", *, to_chat: bool = False) -> str:
+    tpl = (CHAT_TEMPLATES.get(kind) if to_chat else None) or TEMPLATES.get(kind)
     if not tpl:
         return payload.get("text", "")
     safe = _Blank({k: (v if v is not None else "") for k, v in payload.items()})
@@ -81,6 +89,7 @@ async def enqueue(
     *,
     scheduled_at: datetime | None = None,
     dedup_key: str | None = None,
+    chat_id: int | None = None,
 ) -> None:
     # dedup_key защищает от двойной отправки одного и того же, а не от
     # повторения события через месяц. Раньше ключ жил вечно, и повторное
@@ -99,12 +108,52 @@ async def enqueue(
     db.add(
         Outbox(
             user_id=user_id,
+            chat_id=chat_id,
             type=kind,
             payload=payload,
             dedup_key=dedup_key,
             scheduled_at=scheduled_at or datetime.now(timezone.utc),
         )
     )
+
+
+async def chat_of_event(db: AsyncSession, ev: Event) -> int | None:
+    """Чат Telegram, в котором живёт группа мероприятия, если он есть."""
+    if ev.group_id is None:
+        return None
+    group = await db.get(Group, ev.group_id)
+    if group is None or group.deleted_at is not None:
+        return None
+    return group.tg_chat_id
+
+
+async def announce(
+    db: AsyncSession,
+    ev: Event,
+    kind: str,
+    payload: dict,
+    *,
+    scheduled_at: datetime | None = None,
+    dedup_key: str | None = None,
+) -> bool:
+    """Объявление о мероприятии в чат группы. False — чата нет, шлём в личку.
+
+    У группы, выросшей из чата Telegram, адресат один — сам чат: писать
+    каждому в личку то же самое значит удваивать шум. Личными остаются
+    только сообщения, адресованные конкретному человеку: организатору про
+    кворум и места, участнику — про очередь и про то, что его убрали.
+
+    Время в чате показываем в поясе мероприятия: у чата своего пояса нет,
+    а у получателей он разный.
+    """
+    chat_id = await chat_of_event(db, ev)
+    if chat_id is None:
+        return False
+    await enqueue(
+        db, ev.creator_id, kind, {**payload, "tz": ev.timezone},
+        scheduled_at=scheduled_at, dedup_key=dedup_key, chat_id=chat_id,
+    )
+    return True
 
 
 # Уведомления, на которые можно ответить прямо из чата.

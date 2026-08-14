@@ -30,6 +30,7 @@ async def _out(db: AsyncSession, group: Group, me: User) -> GroupOut:
         id=group.id, title=group.title, description=group.description, color=group.color,
         owner_id=group.owner_id, my_role=mem.role if mem else None,
         members_count=int(cnt.scalar_one()),
+        from_chat=group.tg_chat_id is not None,
     )
 
 

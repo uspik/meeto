@@ -20,6 +20,14 @@ ADDITIONS: dict[str, dict[str, str]] = {
     "group_members": {
         "state": "VARCHAR(16) NOT NULL DEFAULT 'active'",
     },
+    "groups": {
+        # чат Telegram, из которого выросла группа
+        "tg_chat_id": "BIGINT",
+    },
+    "notifications_outbox": {
+        # адрес доставки, если сообщение идёт не в личку, а в чат группы
+        "chat_id": "BIGINT",
+    },
 }
 
 
