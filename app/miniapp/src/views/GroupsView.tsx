@@ -226,6 +226,7 @@ export function GroupsView({ groups, invitations, meId, onChanged }: Props) {
   const existing = new Set(members.map((m) => m.user.id));
   const joined = members.filter((m) => m.state !== "pending");
   const awaiting = members.filter((m) => m.state === "pending");
+  const headCount = loadingMembers ? group.members_count : joined.length;
 
   return (
     <>
@@ -241,7 +242,9 @@ export function GroupsView({ groups, invitations, meId, onChanged }: Props) {
           <div>
             <div className="ttl">{group.title}</div>
             <div className="sub">
-              {joined.length} {plural(joined.length, "участник", "участника", "участников")}
+              {/* пока состав едет, показываем число из списка групп: иначе
+                  в заголовке успевает мелькнуть «0 участников» */}
+              {headCount} {plural(headCount, "участник", "участника", "участников")}
               {awaiting.length > 0 && ` · ${awaiting.length} не ответили`}
               {pending.length > 0 && ` · ${pending.length} ждут первого входа`}
             </div>
@@ -257,7 +260,12 @@ export function GroupsView({ groups, invitations, meId, onChanged }: Props) {
           </div>
         )}
 
-        {loadingMembers && [0, 1, 2].map((i) => (
+        {loadingMembers && Array.from(
+          // сколько людей в группе, уже известно из списка — рисуем ровно
+          // столько заглушек, чтобы после загрузки ничего не поехало
+          { length: Math.min(Math.max(group.members_count, 1), 6) },
+          (_, i) => i,
+        ).map((i) => (
           <div key={`sk${i}`} className="row sk" style={{ animationDelay: `${i * 90}ms` }}>
             <span className="pav sk-b" />
             <div className="meta">

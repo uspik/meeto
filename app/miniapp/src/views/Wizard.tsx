@@ -3,7 +3,7 @@ import { DatePicker, NumberPicker, Plate, TimePicker } from "../components/Picke
 import { Fold } from "../components/Fold";
 import { PeoplePicker } from "../components/PeoplePicker";
 import { useSheet } from "../lib/useSheet";
-import { MN, WD, addDays, dstr, hm, plural, sameDay } from "../lib/date";
+import { MN, WD, addDays, dstr, hm, plural, sameDay, startOfDay } from "../lib/date";
 import { api } from "../lib/api";
 import { haptic } from "../lib/tg";
 import type { Event, EventFormat, Group, User } from "../lib/types";
@@ -58,18 +58,36 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
   const [guests, setGuests] = useState<User[]>([]);
   const [guestHandles, setGuestHandles] = useState<string[]>([]);
   const [people, setPeople] = useState(false);
+  // Подсказка по умолчанию: вечер, а если вечер уже прошёл — ближайшие
+  // полчаса вперёд. Предлагать время, которое нельзя выбрать, незачем.
+  function firstTime(when: Date): string {
+    const now = new Date();
+    if (!sameDay(when, now) || hm(now) < "19:00") return "19:00";
+    const soon = new Date(now.getTime() + 30 * 60_000);
+    soon.setMinutes(soon.getMinutes() < 30 ? 30 : 0, 0, 0);
+    if (soon.getMinutes() === 0) soon.setHours(soon.getHours() + 1);
+    return hm(soon);
+  }
+
   const [d, setD] = useState<Draft>(() => {
+    const base = day < startOfDay(new Date()) ? new Date() : day;
     if (!edit) {
       return {
         emoji: "🎯", cover: GRADIENTS[0], title: "", description: "",
         groupId: groups[0]?.id ?? null,
-        date: dstr(day), time: "19:00", dur: 120,
-        endMode: "dur", endDate: dstr(day), endTime: "21:00",
+        // в календаре можно стоять на прошедшем дне — создаём всё равно
+        // с сегодняшнего, назад мероприятия не ставятся
+        date: dstr(base), time: firstTime(base), dur: 120,
+        endMode: "dur", endDate: dstr(base), endTime: "21:00",
         format: "offline", place: "", url: "",
         capOn: false, capacity: 12, quorumOn: false, quorum: 6,
         // срок кворума по умолчанию — за сутки до начала: остаётся день,
-        // чтобы отменить или перепланировать
-        qdate: dstr(addDays(day, -1)), qtime: "20:00",
+        // чтобы отменить или перепланировать. Но не раньше сегодняшнего дня:
+        // назад срок не ставится.
+        qdate: dstr(addDays(base, -1) < startOfDay(new Date())
+          ? new Date()
+          : addDays(base, -1)),
+        qtime: "20:00",
       };
     }
     const s0 = new Date(edit.starts_at);
@@ -124,6 +142,18 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
   const qAt = at(d.qdate, d.qtime);
   const lateQuorum = d.quorumOn && +qAt > +start;
 
+  /* ---- границы выбора: назад мероприятия не ставятся ---- */
+  const now = new Date();
+  const todayStr = dstr(now);
+  const nowHm = hm(now);
+  // редактируем уже начавшееся — прошлое трогать не даём, но и не мешаем
+  const floor = editing && +new Date(edit!.starts_at) < +now ? dstr(new Date(edit!.starts_at)) : todayStr;
+  const startPast = d.date < floor || (d.date === floor && !allDay && d.time < nowHm && floor === todayStr);
+  // конец не раньше начала, срок кворума — от сегодня и до начала
+  const endFloor = d.date;
+  const qFloor = todayStr;
+  const qCeil = d.date;
+
   // все пересечения, а не только первое
   const clashes = existing
     .filter((e) => e.my_status === "going" && e.status !== "cancelled")
@@ -142,7 +172,9 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
 
   const valid = step === 0
     ? d.title.trim().length > 0
-    : step !== 1 || !badEnd;
+    : step === 1
+      ? !badEnd && !startPast
+      : !(step === 3 && d.quorumOn && lateQuorum);
 
   function go(delta: number) {
     if (delta > 0 && step === STEPS.length - 1) { void submit(); return; }
@@ -354,6 +386,9 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
                   {badEnd && (
                     <div className="clash"><b>Окончание раньше начала — поправьте</b></div>
                   )}
+                  {startPast && (
+                    <div className="clash"><b>Это время уже прошло — выберите будущее</b></div>
+                  )}
                   {clashes.length > 0 && (
                     <div className="clash">
                       <b>Пересекается с {clashes.length}{" "}
@@ -490,17 +525,27 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
           />
         )}
 
-        <DatePicker open={picker === "date"} value={d.date}
-          onPick={(v) => patch({ date: v })} onClose={() => setPicker(null)} />
+        <DatePicker open={picker === "date"} value={d.date} min={floor}
+          onPick={(v) => patch({
+            date: v,
+            // окончание тянется за началом, иначе оно молча уезжает в прошлое
+            endDate: v > d.endDate ? v : d.endDate,
+            qdate: v < d.qdate ? v : d.qdate,
+          })}
+          onClose={() => setPicker(null)} />
         <TimePicker open={picker === "time"} value={d.time}
+          min={d.date === todayStr ? nowHm : undefined}
           onPick={(v) => patch({ time: v })} onClose={() => setPicker(null)} />
-        <DatePicker open={picker === "edate"} value={d.endDate}
+        <DatePicker open={picker === "edate"} value={d.endDate} min={endFloor}
           onPick={(v) => patch({ endDate: v })} onClose={() => setPicker(null)} />
         <TimePicker open={picker === "etime"} value={d.endTime}
+          min={d.endDate === d.date ? d.time : undefined}
           onPick={(v) => patch({ endTime: v })} onClose={() => setPicker(null)} />
-        <DatePicker open={picker === "qdate"} value={d.qdate}
+        <DatePicker open={picker === "qdate"} value={d.qdate} min={qFloor} max={qCeil}
           onPick={(v) => patch({ qdate: v })} onClose={() => setPicker(null)} />
         <TimePicker open={picker === "qtime"} value={d.qtime}
+          min={d.qdate === todayStr ? nowHm : undefined}
+          max={d.qdate === d.date && !allDay ? d.time : undefined}
           onPick={(v) => patch({ qtime: v })} onClose={() => setPicker(null)} />
         <NumberPicker open={picker === "cap"} value={d.capacity} min={1} max={200}
           title="Всего мест" onPick={(v) => patch({ capacity: v })} onClose={() => setPicker(null)} />

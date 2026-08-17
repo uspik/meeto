@@ -2,8 +2,13 @@
 
 interface Inset { top: number; bottom: number; left: number; right: number }
 
+/** Клиенты, где приложение занимает весь экран телефона. */
+const MOBILE = new Set(["android", "android_x", "ios"]);
+
 interface TgWebApp {
   version: string;
+  /** android, ios, tdesktop, macos, weba, webk… */
+  platform?: string;
   initData: string;
   colorScheme: "light" | "dark";
   themeParams: Record<string, string>;
@@ -68,8 +73,10 @@ export function initTelegram(): void {
   // жест то и дело закрывал Meeto вместо прокрутки списка.
   if (atLeast("7.7")) tg.disableVerticalSwipes?.();
 
-  // Полный экран — с 8.0. На старых клиентах остаётся обычная шторка.
-  if (atLeast("8.0")) tg.requestFullscreen?.();
+  // Полный экран просим только на телефоне. На компьютере Telegram открывает
+  // mini-app отдельным окном, и разворачивать его на весь экран — значит
+  // закрывать собой всё остальное; окно там уместнее и привычнее.
+  if (atLeast("8.0") && MOBILE.has(tg.platform ?? "")) tg.requestFullscreen?.();
 
   applyInsets();
   for (const event of ["fullscreenChanged", "safeAreaChanged", "contentSafeAreaChanged",

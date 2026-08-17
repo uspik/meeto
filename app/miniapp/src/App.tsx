@@ -34,6 +34,10 @@ export default function App() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [invitations, setInvitations] = useState<Group[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
+  // То, что реально нарисовано. Обновляется только вместе с приходом данных
+  // за текущий период: иначе на долю секунды показывался прежний список,
+  // пересобранный по новому диапазону, — те самые «прыгающие местами» строки.
+  const [feed, setFeed] = useState<Event[]>([]);
   const [fatal, setFatal] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   // Метка периода, за который лежат данные. Пока она не совпадает с текущим
@@ -163,39 +167,36 @@ export default function App() {
   const shown = useRef({ all: 0, going: 0, away: 0 });
   const counts = useMemo(() => {
     if (stale) return shown.current;
-    const scoped = events.filter((e) => {
+    const scoped = feed.filter((e) => {
       if (groupFilter !== "all" && (e.group_id ?? "personal") !== groupFilter) return false;
       return view === "day" ? sameDay(new Date(e.starts_at), cursor) : inScope(e);
     });
     const going = scoped.filter((e) => e.my_status === "going" && e.status !== "cancelled").length;
     return { all: scoped.length, going, away: scoped.length - going };
-  }, [events, view, cursor, inScope, groupFilter, stale]);
+  }, [feed, view, cursor, inScope, groupFilter, stale]);
 
   useEffect(() => { shown.current = counts; }, [counts]);
 
-  // Пришли ли на этот экран переключением вкладки. Считается один раз при
-  // смене экрана и дальше не меняется: если снять «тихий» режим на середине,
-  // отложенные анимации запустятся все разом — ровно то, от чего уходим.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const quiet = useMemo(() => (anim ? "quiet" : ""), [view]);
+  useEffect(() => { if (!stale) setFeed(events); }, [events, stale]);
+
 
   // Скелетоны показываем, только когда показывать действительно нечего:
   // при переходе месяц → список периоды пересекаются, строки уже на экране,
   // и подменять их скелетонами значит анимировать список дважды подряд.
   const emptyForNow = useMemo(
-    () => events.filter((e) => inScope(e)).length === 0,
-    [events, inScope],
+    () => feed.filter((e) => inScope(e)).length === 0,
+    [feed, inScope],
   );
   const skeletons = !everLoaded || (stale && emptyForNow);
 
   const visible = useMemo(
-    () => events.filter((e) => {
+    () => feed.filter((e) => {
       if (groupFilter !== "all" && (e.group_id ?? "personal") !== groupFilter) return false;
       if (filter === "all") return true;
       const going = e.my_status === "going" && e.status !== "cancelled";
       return filter === "going" ? going : !going;
     }),
-    [events, filter, groupFilter],
+    [feed, filter, groupFilter],
   );
 
   function shift(delta: number) {
@@ -338,9 +339,11 @@ export default function App() {
             dangerouslySetInnerHTML={{ __html: anim.html }}
           />
         )}
+        {/* Фильтр в ключе: при его смене экран пересобирается и строки
+            въезжают заново, а не перескакивают на новые места. */}
         <div
-          key={view}
-          className={`view in ${anim ? `enter-${anim.dir > 0 ? "r" : "l"}` : ""} ${quiet}`}
+          key={`${view}:${filter}:${groupFilter}`}
+          className={`view in ${anim ? `enter-${anim.dir > 0 ? "r" : "l"}` : ""}`}
         >
           {view === "month" && (
             <MonthView

@@ -24,9 +24,13 @@ function Sheet({ open, onClose, children }: SheetProps) {
 /*  Календарь                                                          */
 /* ------------------------------------------------------------------ */
 
-interface DateProps { open: boolean; value: string; onPick(v: string): void; onClose(): void }
+interface DateProps {
+  open: boolean; value: string; onPick(v: string): void; onClose(): void;
+  /** границы выбора в виде «2026-08-17»; вне них дни серые и не нажимаются */
+  min?: string; max?: string;
+}
 
-export function DatePicker({ open, value, onPick, onClose }: DateProps) {
+export function DatePicker({ open, value, onPick, onClose, min, max }: DateProps) {
   const [Y, M] = value.split("-").map(Number);
   const [month, setMonth] = useState(() => new Date(Y, M - 1, 1));
   const today = useRef(new Date()).current;
@@ -57,15 +61,19 @@ export function DatePicker({ open, value, onPick, onClose }: DateProps) {
           const d = new Date(start);
           d.setDate(d.getDate() + i);
           const key = dstr(d);
+          // строки дат сравниваются лексикографически: формат фиксированный
+          const off = (min && key < min) || (max && key > max);
           return (
             <button
               key={key}
+              disabled={Boolean(off)}
               className={[
                 d.getMonth() !== month.getMonth() ? "out" : "",
+                off ? "off" : "",
                 sameDay(d, today) ? "td" : "",
                 key === value ? "on" : "",
               ].filter(Boolean).join(" ")}
-              onClick={() => { onPick(key); onClose(); }}
+              onClick={() => { if (!off) { onPick(key); onClose(); } }}
             >
               {d.getDate()}
             </button>
@@ -203,18 +211,59 @@ function Wheel({ count, index, label, onIndex }: WheelProps) {
   );
 }
 
-interface TimeProps { open: boolean; value: string; onPick(v: string): void; onClose(): void }
+interface TimeProps {
+  open: boolean; value: string; onPick(v: string): void; onClose(): void;
+  /** «08:30» — раньше этого времени барабан не крутится */
+  min?: string; max?: string;
+}
 
-export function TimePicker({ open, value, onPick, onClose }: TimeProps) {
-  const [h, m] = value.split(":").map(Number);
+const mins = (t: string) => {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+};
+const clock = (total: number) => `${p2(Math.floor(total / 60))}:${p2(total % 60)}`;
+
+/**
+ * Барабан времени с границами.
+ *
+ * Недоступное время не гасим, а просто не показываем: в барабане серые
+ * позиции всё равно проезжают под пальцем и сбивают прицел. Значение на
+ * выходе дополнительно зажимаем — барабан отдаёт последнее положение при
+ * закрытии, и оно могло относиться к прежнему набору минут.
+ */
+export function TimePicker({ open, value, onPick, onClose, min, max }: TimeProps) {
+  const lo = min ? mins(min) : 0;
+  const hi = max ? mins(max) : 24 * 60 - 1;
+  const now = Math.min(Math.max(mins(value), lo), hi);
+  const [h, m] = [Math.floor(now / 60), now % 60];
+
+  const hFrom = Math.floor(lo / 60);
+  const hTo = Math.floor(hi / 60);
+  // минуты ограничены только на крайних часах: внутри диапазона они все
+  const mFrom = h === hFrom ? lo % 60 : 0;
+  const mTo = h === hTo ? hi % 60 : 59;
+
+  const pick = (total: number) => onPick(clock(Math.min(Math.max(total, lo), hi)));
+
   if (!open) return <Sheet open={false} onClose={onClose}><div /></Sheet>;
   return (
     <Sheet open={open} onClose={onClose}>
       <div className="pop-ttl"><b>Время</b></div>
       <div className="wheels">
-        <Wheel count={24} index={h} label={p2} onIndex={(i) => onPick(`${p2(i)}:${p2(m)}`)} />
+        <Wheel
+          count={hTo - hFrom + 1}
+          index={h - hFrom}
+          label={(i) => p2(i + hFrom)}
+          onIndex={(i) => pick((i + hFrom) * 60 + m)}
+        />
         <span className="wsep">:</span>
-        <Wheel count={60} index={m} label={p2} onIndex={(i) => onPick(`${p2(h)}:${p2(i)}`)} />
+        <Wheel
+          key={`${mFrom}-${mTo}`}
+          count={mTo - mFrom + 1}
+          index={Math.max(0, m - mFrom)}
+          label={(i) => p2(i + mFrom)}
+          onIndex={(i) => pick(h * 60 + i + mFrom)}
+        />
       </div>
       <button className="pop-done" onClick={onClose}>Готово</button>
     </Sheet>

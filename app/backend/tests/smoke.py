@@ -386,12 +386,44 @@ async def main() -> None:
                              json={"status": "going", "arrival_at": arrive})
             check("время прихода сохранено", r.json()["my_arrival"] is not None, r.text[:200])
 
-            print("\n=== завершённое мероприятие ===")
+            print("\n=== задним числом ничего не создаётся ===")
             past = {"title": "Вчера", "format": "online",
                     "starts_at": (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat(),
                     "ends_at": (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()}
             r = await c.post("/events", headers=H1, json=past)
+            check("мероприятие в прошлом не создать", r.status_code == 400, r.text[:200])
+
+            r = await c.post("/events", headers=H1, json={
+                "title": "Со сроком в прошлом", "format": "online",
+                "starts_at": (start + timedelta(days=3)).isoformat(),
+                "quorum_min": 2,
+                "quorum_deadline": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
+            })
+            check("срок кворума в прошлом не проходит", r.status_code == 400, r.text[:200])
+
+            r = await c.post("/events", headers=H1, json={
+                "title": "Срок после начала", "format": "online",
+                "starts_at": (start + timedelta(days=3)).isoformat(),
+                "quorum_min": 2,
+                "quorum_deadline": (start + timedelta(days=4)).isoformat(),
+            })
+            check("и срок позже начала тоже", r.status_code == 400, r.text[:200])
+
+            print("\n=== завершённое мероприятие ===")
+            # создаём в будущем и сдвигаем в прошлое прямо в базе: через API
+            # такое уже не заводится, а проверить поведение прошедшего надо
+            r = await c.post("/events", headers=H1, json={
+                "title": "Вчера", "format": "online",
+                "starts_at": (start + timedelta(days=4)).isoformat(),
+                "ends_at": (start + timedelta(days=4, hours=1)).isoformat()})
             pid = r.json()["id"]
+            async with SessionLocal() as db:
+                from app.models import Event as EvModel
+                moved = await db.get(EvModel, UUID(pid))
+                moved.starts_at = datetime.now(timezone.utc) - timedelta(hours=3)
+                moved.ends_at = datetime.now(timezone.utc) - timedelta(hours=2)
+                await db.commit()
+            r = await c.get(f"/events/{pid}", headers=H1)
             check("отмечено как прошедшее", r.json()["is_past"] is True, r.text[:200])
             check("ответ закрыт", r.json()["can_rsvp"] is False)
             check("статус посещения сохранён", r.json()["my_status"] == "going")

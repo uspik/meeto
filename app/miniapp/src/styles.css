@@ -101,13 +101,9 @@ body.tg-fullscreen .hdr-top{padding-right:calc(16px + 92px)}
    «вылетали» ещё раз уже в уходящем слое. Снимку движение не нужно, он
    просто растворяется. */
 .ghost *{animation:none !important;transition:none !important}
-/* Экран, который въезжает при смене вкладки, едет целиком — второй
-   анимации внутри него не нужно, от неё и была дёрганость. */
-.view.quiet .rise,.view.quiet .cell-in,.view.quiet .gpage,.view.quiet .sk,
-.view.quiet #strip.swap{animation:none}
-/* мерцание скелетона оставляем: оно говорит «данные ещё едут» */
-.view.quiet .sk-b,.view.quiet .sk-l,.view.quiet .sk-blk{
-  animation:shimmer 1.25s ease-in-out infinite}
+/* Внутренние анимации экрана глушить не надо: список, кружки календаря
+   и строки дня появляются каскадом поверх въезда — это и читается как
+   «экран собрался», а не «дёрнулся». Дёрганость давал снимок выше. */
 .ghost.out-left{opacity:0;transform:translateX(-22px)}
 .ghost.out-right{opacity:0;transform:translateX(22px)}
 .ghost.out-fade{opacity:0;transform:translateY(-6px) scale(.99)}
@@ -541,6 +537,10 @@ body.dark{--pick-filter:invert(1)}
   transition:background .2s,color .2s,transform .14s}
 .cal button:active{transform:scale(.88)}
 .cal button.out{opacity:.28}
+/* прошедший день выбрать нельзя — показываем это прямо в календаре,
+   а не сообщением об ошибке после нажатия */
+.cal button.off{opacity:.25;color:var(--hint);cursor:default;text-decoration:line-through}
+.cal button.off:active{transform:none}
 .cal button.td{color:var(--link);font-weight:750}
 .cal button.on{background:var(--link);color:#fff;font-weight:700}
 
@@ -751,6 +751,12 @@ html.theming,body.theming,body.theming *{
 /* клетки месяца проявляются построчно, не по одной */
 @keyframes cellIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .cell-in{animation:cellIn .3s cubic-bezier(.32,.72,0,1) both}
+
+/* Кружки мероприятий приезжают вместе с данными, уже после того как сетка
+   нарисована. Без этого они вспыхивали на готовом календаре — то самое
+   «дёрганье»; теперь мягко проявляются. */
+@keyframes dotIn{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
+.dots .ico,.dots .more{animation:dotIn .26s cubic-bezier(.32,.72,0,1) both}
 
 /* ==== приглашение в группу ==== */
 .row.inv{flex-wrap:wrap;cursor:default}

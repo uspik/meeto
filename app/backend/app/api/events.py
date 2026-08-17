@@ -137,12 +137,33 @@ async def visible_pairs(db: AsyncSession, me: User, frm: datetime, to: datetime)
     return out
 
 
+def check_time(starts_at: datetime, ends_at: datetime | None,
+               quorum_deadline: datetime | None, *, is_new: bool) -> None:
+    """Мероприятие живёт в будущем, а срок кворума — до его начала.
+
+    Запас в минуту — на расхождение часов у клиента и сервера: без него
+    «создать на ближайшее время» иногда падало на ровном месте.
+    """
+    now = datetime.now(timezone.utc) - timedelta(minutes=1)
+    if is_new and aware(starts_at) < now:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "мероприятие в прошлом не создать")
+    if ends_at and aware(ends_at) <= aware(starts_at):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "конец раньше начала")
+    if quorum_deadline is not None:
+        if aware(quorum_deadline) < now:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                "срок кворума уже прошёл")
+        if aware(quorum_deadline) > aware(starts_at):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                "срок кворума позже начала мероприятия")
+
+
 @router.post("", response_model=EventOut, status_code=201)
 async def create(body: EventIn, me: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
     if body.group_id:
         await require_group(db, body.group_id, me, "events.create")
-    if body.ends_at and body.ends_at <= body.starts_at:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "конец раньше начала")
+    check_time(body.starts_at, body.ends_at, body.quorum_deadline, is_new=True)
     if body.quorum_min and body.capacity_max and body.quorum_min > body.capacity_max:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "минимум больше числа мест")
 
@@ -210,6 +231,17 @@ async def edit(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "нет прав на редактирование")
 
     incoming = body.model_dump(exclude_none=True)
+
+    # Переносить мероприятие в прошлое нельзя. Проверяем только то, что
+    # правда меняется: форма присылает все поля разом, и старый срок кворума
+    # (он мог давно пройти) не должен мешать переименовать мероприятие.
+    starts = incoming.get("starts_at", ev.starts_at)
+    moved = "starts_at" in incoming and aware(starts) != aware(ev.starts_at)
+    deadline = incoming.get("quorum_deadline")
+    if deadline is not None and ev.quorum_deadline is not None:
+        if aware(deadline) == aware(ev.quorum_deadline):
+            deadline = None
+    check_time(starts, incoming.get("ends_at", ev.ends_at), deadline, is_new=moved)
 
     # Форма присылает всё поля разом, поэтому «поле пришло» ещё не значит
     # «значение поменялось». Сравниваем со старым — иначе уведомление уходило
