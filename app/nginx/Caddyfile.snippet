@@ -7,6 +7,17 @@
 meeto.example.com {
 	encode zstd gzip
 
+	# Поток живых обновлений: ответ не завершается, поэтому буферизацию
+	# снимаем, а ожидание чтения делаем долгим — тишина здесь норма.
+	handle /api/v1/stream {
+		reverse_proxy meeto-api:8000 {
+			flush_interval -1
+			transport http {
+				read_timeout 1h
+			}
+		}
+	}
+
 	# API бэкенда: пути уже начинаются с /api/v1, переписывать не нужно
 	handle /api/* {
 		reverse_proxy meeto-api:8000

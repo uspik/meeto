@@ -9,6 +9,20 @@ export const hm = (d: Date) => `${p2(d.getHours())}:${p2(d.getMinutes())}`;
 export const dstr = (d: Date) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
 export const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
 
+/**
+ * Время мероприятия одной строкой.
+ *
+ * Для многодневного «10:00–18:00» врало бы: показываем, каким днём и во
+ * сколько оно кончится.
+ */
+export function timeRange(startISO: string, endISO?: string | null): string {
+  const start = new Date(startISO);
+  if (!endISO) return hm(start);
+  const end = new Date(endISO);
+  if (sameDay(start, end)) return `${hm(start)}–${hm(end)}`;
+  return `${hm(start)} → ${end.getDate()} ${MN[end.getMonth()].slice(0, 3)} ${hm(end)}`;
+}
+
 export function mondayOf(d: Date): Date {
   const x = new Date(d);
   x.setDate(x.getDate() - ((x.getDay() + 6) % 7));

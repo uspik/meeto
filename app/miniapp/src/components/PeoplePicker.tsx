@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Avatar } from "./Avatar";
 import { Overlay } from "./Overlay";
 import { SkeletonRows } from "./Skeleton";
 
@@ -24,8 +25,6 @@ interface Props {
 }
 
 const fullName = (u: User) => [u.first_name, u.last_name].filter(Boolean).join(" ");
-const initials = (u: User) =>
-  [u.first_name, u.last_name].filter(Boolean).map((s) => s![0]).join("").toUpperCase() || "?";
 
 /**
  * Экран выбора людей — как при создании чата в Telegram: поиск, галочки,
@@ -169,9 +168,7 @@ export function PeoplePicker({
               style={{ animationDelay: `${Math.min(i, 8) * 35}ms` }}
               onClick={() => toggle(u)}
             >
-              <span className="pav" style={{ backgroundImage: u.photo_url ? `url(${u.photo_url})` : undefined }}>
-                {u.photo_url ? "" : initials(u)}
-              </span>
+              <Avatar user={u} />
               <div className="meta">
                 <div className="rt"><em>{fullName(u)}</em></div>
                 {u.username && <div className="rs">@{u.username}</div>}

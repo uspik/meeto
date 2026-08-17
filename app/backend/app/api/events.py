@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
@@ -18,6 +18,7 @@ from ..schemas import (
 )
 from ..services import invites as inv
 from ..services import events as svc
+from ..services import live
 from ..services.notify import announce, enqueue
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -116,11 +117,15 @@ async def visible_pairs(db: AsyncSession, me: User, frm: datetime, to: datetime)
         select(GroupMember.group_id).where(GroupMember.user_id == me.id)
     )).scalars().all()
 
+    # Берём всё, что пересекается с окном, а не только начинающееся в нём:
+    # иначе мероприятие на несколько дней видно лишь в первый день, а во
+    # второй и третий день календарь оказывается пустым.
     res = await db.execute(
         select(Event, Participant)
         .outerjoin(Participant, (Participant.event_id == Event.id)
                    & (Participant.user_id == me.id))
-        .where(Event.starts_at < to, Event.starts_at >= frm - timedelta(days=1),
+        .where(Event.starts_at < to,
+               func.coalesce(Event.ends_at, Event.starts_at) >= frm - timedelta(days=1),
                Event.status != EventStatus.draft)
         .order_by(Event.starts_at)
     )
@@ -174,6 +179,7 @@ async def create(body: EventIn, me: User = Depends(current_user), db: AsyncSessi
                               dedup_key=f"invited:{ev.id}:{uid_}")
     await db.commit()
     await db.refresh(ev)
+    await live.event_changed(db, ev)
     return await to_out(db, ev, me)
 
 
@@ -239,6 +245,7 @@ async def edit(
                     await enqueue(db, pt.user_id, "event.updated", invite_payload(ev))
     await db.commit()
     await db.refresh(ev)
+    await live.event_changed(db, ev)
     return await to_out(db, ev, me)
 
 
@@ -268,6 +275,7 @@ async def cancel(
                               dedup_key=f"cancelled:{ev.id}:{pt.user_id}")
     await db.commit()
     await db.refresh(ev)
+    await live.event_changed(db, ev)
     return await to_out(db, ev, me)
 
 
@@ -328,6 +336,7 @@ async def invite(
     await inv.remember_contact(db, me.id, ids)
     pending = await inv.remember(db, missing, by=me.id, event_id=ev.id)
     await db.commit()
+    await live.event_changed(db, ev)
     return InviteResult(added=len(added), pending=pending)
 
 
@@ -369,6 +378,7 @@ async def drop_participant(
 
     await enqueue(db, user_id, "event.removed", {"title": ev.title, "event_id": str(ev.id)})
     await db.commit()
+    await live.event_changed(db, ev, extra={user_id})
 
 
 @router.post("/{event_id}/rsvp", response_model=EventOut)
@@ -438,4 +448,6 @@ async def rsvp(
 
     await db.commit()
     await db.refresh(ev)
+    # чужой ответ виден организатору сразу: у него открыт «Кто идёт»
+    await live.event_changed(db, ev)
     return await to_out(db, ev, me)

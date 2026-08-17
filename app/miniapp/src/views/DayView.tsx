@@ -1,7 +1,7 @@
 import { BottomBar } from "../components/BottomBar";
 import { SkeletonDay } from "../components/Skeleton";
 import { Icon } from "../components/Icon";
-import { hm, plural, sameDay } from "../lib/date";
+import { hm, plural, sameDay, timeRange } from "../lib/date";
 import { conflictsOn, onDay, span } from "../lib/conflicts";
 import type { Event } from "../lib/types";
 import { visualStatus } from "../lib/types";
@@ -25,6 +25,19 @@ export function DayView(p: Props) {
     .filter((e) => onDay(e, p.cursor))
     .sort((a, b) => +new Date(a.starts_at) - +new Date(b.starts_at));
 
+  // Мероприятие может идти несколько дней. На ленте дня показываем только
+  // его сегодняшнюю часть: иначе шкала растягивалась бы на все сутки
+  // мероприятия и день превращался в километровый столбец.
+  const dayFrom = +new Date(p.cursor.getFullYear(), p.cursor.getMonth(), p.cursor.getDate());
+  const dayTo = dayFrom + 86_400_000;
+  const daySpan = (e: Event): [Date, Date] => {
+    const [s, t] = span(e);
+    return [
+      new Date(Math.max(+s, dayFrom)),
+      new Date(Math.min(+t, dayTo)),
+    ];
+  };
+
   if (!evs.length) {
     return (
       <>
@@ -45,7 +58,7 @@ export function DayView(p: Props) {
   // показываем только интервалы с мероприятиями, пустые часы схлопываем
   const raw = evs
     .map((e) => {
-      const [s, t] = span(e);
+      const [s, t] = daySpan(e);
       return [
         Math.floor((s.getTime() - PAD) / SNAP) * SNAP,
         Math.ceil((t.getTime() + PAD) / SNAP) * SNAP,
@@ -77,13 +90,13 @@ export function DayView(p: Props) {
           for (let t = Math.ceil(from / 3_600_000) * 3_600_000; t <= to; t += 3_600_000) hours.push(t);
 
           const inSeg = evs.filter((e) => {
-            const [s, t] = span(e);
+            const [s, t] = daySpan(e);
             return t.getTime() > from && s.getTime() < to;
           });
 
           const lanes: number[] = [];
           const placed = inSeg.map((e) => {
-            const [s0, e0] = span(e);
+            const [s0, e0] = daySpan(e);
             const s = Math.max(s0.getTime(), from);
             const en = Math.min(e0.getTime(), to);
             let lane = lanes.findIndex((end) => end <= s);
@@ -150,8 +163,7 @@ export function DayView(p: Props) {
                           <span className="t">{e.title}</span>
                           {h > 50 && (
                             <span className="tm">
-                              {hm(new Date(e.starts_at))}
-                              {e.ends_at ? `–${hm(new Date(e.ends_at))}` : ""}
+                              {timeRange(e.starts_at, e.ends_at)}
                             </span>
                           )}
                         </span>

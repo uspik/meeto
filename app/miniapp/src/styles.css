@@ -96,6 +96,18 @@ body.tg-fullscreen .hdr-top{padding-right:calc(16px + 92px)}
 .view.in{opacity:1;transform:none}
 /* уходящий слой — живёт 300 мс поверх, чтобы переход был непрерывным */
 .ghost{pointer-events:none;z-index:1}
+/* Снимок уходящего экрана — это копия разметки со всеми классами анимаций,
+   и браузер честно проигрывает их заново. Получалось наслоение: строки
+   «вылетали» ещё раз уже в уходящем слое. Снимку движение не нужно, он
+   просто растворяется. */
+.ghost *{animation:none !important;transition:none !important}
+/* Экран, который въезжает при смене вкладки, едет целиком — второй
+   анимации внутри него не нужно, от неё и была дёрганость. */
+.view.quiet .rise,.view.quiet .cell-in,.view.quiet .gpage,.view.quiet .sk,
+.view.quiet #strip.swap{animation:none}
+/* мерцание скелетона оставляем: оно говорит «данные ещё едут» */
+.view.quiet .sk-b,.view.quiet .sk-l,.view.quiet .sk-blk{
+  animation:shimmer 1.25s ease-in-out infinite}
 .ghost.out-left{opacity:0;transform:translateX(-22px)}
 .ghost.out-right{opacity:0;transform:translateX(22px)}
 .ghost.out-fade{opacity:0;transform:translateY(-6px) scale(.99)}
@@ -618,7 +630,10 @@ html.theming,body.theming,body.theming *{
 
 .pav,.gav{width:40px;height:40px;border-radius:50%;flex:0 0 auto;display:grid;place-items:center;
   font-size:15px;font-weight:650;color:#fff;background-size:cover;background-position:center;
-  background-color:var(--neutral)}
+  background-color:var(--neutral);position:relative;overflow:hidden}
+/* фото ложится поверх букв: не загрузилось — остаются буквы, а не пустота */
+.pav img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  border-radius:50%;background:var(--neutral)}
 .gav.lg{width:52px;height:52px;font-size:20px}
 
 .gtop{padding:2px 0 10px}
@@ -747,6 +762,12 @@ html.theming,body.theming,body.theming *{
 .invbtns button:disabled{opacity:.5}
 .invbtns .going.on{background:var(--accept);color:#fff}
 .invbtns .declined{color:var(--decline)}
+
+/* Сворачивание блока по высоте: длительность ↔ своё окончание, срок кворума.
+   Прозрачность гасим быстрее высоты — так содержимое не «мнётся» на глазах. */
+.fold{overflow:hidden;opacity:0;
+  transition:height .3s cubic-bezier(.32,.72,0,1),opacity .18s ease}
+.fold.on{opacity:1;transition:height .3s cubic-bezier(.32,.72,0,1),opacity .24s ease .06s}
 
 /* подтверждение удаления прямо в строке участника */
 .wdrop{display:flex;gap:4px;flex:0 0 auto}

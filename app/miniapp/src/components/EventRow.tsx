@@ -1,4 +1,4 @@
-import { hm } from "../lib/date";
+import { hm, timeRange } from "../lib/date";
 import type { Event } from "../lib/types";
 import { visualStatus } from "../lib/types";
 import { Icon } from "./Icon";
@@ -8,10 +8,8 @@ interface Props { event: Event; index?: number; onOpen(e: Event): void }
 
 export function EventRow({ event, index, onOpen }: Props) {
   const st = visualStatus(event);
-  const start = new Date(event.starts_at);
   const time =
-    hm(start) +
-    (event.ends_at ? `–${hm(new Date(event.ends_at))}` : "") +
+    timeRange(event.starts_at, event.ends_at) +
     (event.is_time_flexible && event.my_arrival ? ` · с ${hm(new Date(event.my_arrival))}` : "");
 
   const badges: string[] = [];

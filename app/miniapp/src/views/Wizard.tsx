@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { DatePicker, NumberPicker, Plate, TimePicker } from "../components/Pickers";
+import { Fold } from "../components/Fold";
 import { PeoplePicker } from "../components/PeoplePicker";
 import { useSheet } from "../lib/useSheet";
-import { MN, WD, dstr, hm } from "../lib/date";
+import { MN, WD, addDays, dstr, hm, plural, sameDay } from "../lib/date";
 import { api } from "../lib/api";
 import { haptic } from "../lib/tg";
 import type { Event, EventFormat, Group, User } from "../lib/types";
@@ -18,12 +19,19 @@ const GRADIENTS = [
 const SOLIDS = ["#5b8def", "#2fbf5c", "#f59200", "#e2564d", "#9b5de5", "#00b8b0", "#4a4a55", "#e05a9c"];
 const PALETTE = [...GRADIENTS, ...SOLIDS];
 const DURS: [number, string][] = [[30, "30 мин"], [60, "1 час"], [120, "2 часа"], [1440, "весь день"]];
+/** Дату показываем коротко: «12 сентября 2026» в плитку не влезает. */
+const dateLabel = (iso: string) =>
+  `${Number(iso.slice(8))} ${MN[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
 
 interface Draft {
   emoji: string; cover: string; title: string; description: string; groupId: string | null;
   date: string; time: string; dur: number;
+  /** dur — длительность бегунком, custom — своя дата и время окончания */
+  endMode: "dur" | "custom";
+  endDate: string; endTime: string;
   format: EventFormat; place: string; url: string;
-  capOn: boolean; capacity: number; quorumOn: boolean; quorum: number; qtime: string;
+  capOn: boolean; capacity: number; quorumOn: boolean; quorum: number;
+  qdate: string; qtime: string;
 }
 
 interface Props {
@@ -42,7 +50,8 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
   const [step, setStep] = useState(0);
   // направление въезда шага; сбрасывается после проигрыша анимации
   const [slide, setSlide] = useState<"" | "enter-r" | "enter-l">("");
-  const [picker, setPicker] = useState<null | "date" | "time" | "qtime" | "cap" | "quorum">(null);
+  const [picker, setPicker] =
+    useState<null | "date" | "time" | "edate" | "etime" | "qdate" | "qtime" | "cap" | "quorum">(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [groupOpen, setGroupOpen] = useState(false);
@@ -55,35 +64,65 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
         emoji: "🎯", cover: GRADIENTS[0], title: "", description: "",
         groupId: groups[0]?.id ?? null,
         date: dstr(day), time: "19:00", dur: 120,
+        endMode: "dur", endDate: dstr(day), endTime: "21:00",
         format: "offline", place: "", url: "",
-        capOn: false, capacity: 12, quorumOn: false, quorum: 6, qtime: "20:00",
+        capOn: false, capacity: 12, quorumOn: false, quorum: 6,
+        // срок кворума по умолчанию — за сутки до начала: остаётся день,
+        // чтобы отменить или перепланировать
+        qdate: dstr(addDays(day, -1)), qtime: "20:00",
       };
     }
     const s0 = new Date(edit.starts_at);
     const e0 = edit.ends_at ? new Date(edit.ends_at) : new Date(s0.getTime() + 3600_000);
+    const mins = Math.max(15, Math.round((+e0 - +s0) / 60_000));
+    // всё, что не укладывается в бегунок (до 8 часов) и не «весь день»,
+    // открываем сразу своим окончанием — иначе правка тихо укоротит событие
+    const custom = mins > 480 && mins !== 1440;
+    const qd = edit.quorum_deadline ? new Date(edit.quorum_deadline) : addDays(s0, -1);
     return {
       emoji: edit.emoji, cover: edit.cover, title: edit.title,
       description: edit.description ?? "", groupId: edit.group_id ?? null,
       date: dstr(s0), time: hm(s0),
-      dur: Math.max(15, Math.round((+e0 - +s0) / 60_000)),
+      dur: custom ? 120 : mins,
+      endMode: custom ? "custom" : "dur",
+      endDate: dstr(e0), endTime: hm(e0),
       format: edit.format, place: edit.place ?? "", url: edit.online_url ?? "",
       capOn: edit.capacity_max != null, capacity: edit.capacity_max ?? 12,
       quorumOn: edit.quorum_min != null, quorum: edit.quorum_min ?? 6,
-      qtime: edit.quorum_deadline ? hm(new Date(edit.quorum_deadline)) : "20:00",
+      qdate: dstr(qd), qtime: hm(qd),
     };
   });
 
   const patch = (v: Partial<Draft>) => setD((prev) => ({ ...prev, ...v }));
-  const allDay = d.dur === 1440;
+  const custom = d.endMode === "custom";
+  const allDay = !custom && d.dur === 1440;
+
+  function at(date: string, time: string): Date {
+    const [Y, M, D] = date.split("-").map(Number);
+    const [h, m] = time.split(":").map(Number);
+    return new Date(Y, M - 1, D, h, m);
+  }
 
   function bounds(): [Date, Date] {
-    const [Y, M, D] = d.date.split("-").map(Number);
-    const [h, m] = allDay ? [0, 0] : d.time.split(":").map(Number);
-    const s = new Date(Y, M - 1, D, h, m);
+    const s = at(d.date, allDay ? "00:00" : d.time);
+    if (custom) return [s, at(d.endDate, d.endTime)];
     return [s, new Date(s.getTime() + d.dur * 60_000)];
   }
 
   const [start, end] = bounds();
+  // конец раньше начала — не молчим и не «чиним» сами: человек должен
+  // увидеть, что именно он выбрал
+  const badEnd = custom && +end <= +start;
+  const days = Math.round((+at(d.endDate, "00:00") - +at(d.date, "00:00")) / 86_400_000);
+
+  /** Переключение «длительность ↔ своё окончание» без потери выбранного. */
+  function toCustom() {
+    const [, e] = bounds();
+    patch({ endMode: "custom", endDate: dstr(e), endTime: hm(e) });
+  }
+
+  const qAt = at(d.qdate, d.qtime);
+  const lateQuorum = d.quorumOn && +qAt > +start;
 
   // все пересечения, а не только первое
   const clashes = existing
@@ -101,7 +140,9 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
       : [Math.floor(v / 60) ? `${Math.floor(v / 60)} ч` : "", v % 60 ? `${v % 60} мин` : ""]
         .filter(Boolean).join(" ");
 
-  const valid = step !== 0 || d.title.trim().length > 0;
+  const valid = step === 0
+    ? d.title.trim().length > 0
+    : step !== 1 || !badEnd;
 
   function go(delta: number) {
     if (delta > 0 && step === STEPS.length - 1) { void submit(); return; }
@@ -122,9 +163,7 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
     setBusy(true);
     setError(null);
     try {
-      const [qh, qm] = d.qtime.split(":").map(Number);
-      const qd = new Date(start);
-      qd.setHours(qh, qm, 0, 0);
+      const deadline = at(d.qdate, d.qtime);
 
       const payload = {
         title: d.title.trim(),
@@ -138,7 +177,7 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
         ends_at: end.toISOString(),
         capacity_max: d.capOn ? d.capacity : null,
         quorum_min: d.quorumOn ? d.quorum : null,
-        quorum_deadline: d.quorumOn ? qd.toISOString() : null,
+        quorum_deadline: d.quorumOn ? deadline.toISOString() : null,
       };
 
       // группу при редактировании не отправляем: переносить мероприятие
@@ -269,24 +308,52 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
                   <div className="lbl">Длительность</div>
                   <div className="pick">
                     {DURS.map(([v, l]) => (
-                      <button key={v} className={`pk txt ${d.dur === v ? "on" : ""}`}
-                        onClick={() => patch({ dur: v })}>{l}</button>
+                      <button key={v} className={`pk txt ${!custom && d.dur === v ? "on" : ""}`}
+                        onClick={() => patch({ endMode: "dur", dur: v })}>{l}</button>
                     ))}
+                    <button className={`pk txt ${custom ? "on" : ""}`} onClick={toCustom}>
+                      свой выбор
+                    </button>
                   </div>
-                  {!allDay && (
-                    <>
-                      <input type="range" className="rng" min={15} max={480} step={15}
-                        value={Math.min(480, d.dur)}
-                        onChange={(e) => patch({ dur: Number(e.target.value) })} />
-                      <div className="rngrow">
-                        <span>15 мин</span><b>{durLabel(d.dur)}</b><span>8 часов</span>
+
+                  {/* Бегунок и своё окончание занимают одно место и сменяют
+                      друг друга: показывать оба сразу — значит спрашивать
+                      одно и то же дважды. */}
+                  <Fold open={!custom && !allDay}>
+                    <input type="range" className="rng" min={15} max={480} step={15}
+                      value={Math.min(480, d.dur)}
+                      onChange={(e) => patch({ dur: Number(e.target.value) })} />
+                    <div className="rngrow">
+                      <span>15 мин</span><b>{durLabel(d.dur)}</b><span>8 часов</span>
+                    </div>
+                  </Fold>
+
+                  <Fold open={custom}>
+                    <div className="two" style={{ paddingTop: 10 }}>
+                      <div className="fld" style={{ marginBottom: 0 }}>
+                        <div className="lbl">Дата окончания</div>
+                        <Plate text={dateLabel(d.endDate)} onOpen={() => setPicker("edate")} />
                       </div>
-                    </>
-                  )}
+                      <div className="fld" style={{ marginBottom: 0 }}>
+                        <div className="lbl">Время окончания</div>
+                        <Plate text={d.endTime} onOpen={() => setPicker("etime")} />
+                      </div>
+                    </div>
+                  </Fold>
                 </div>
                 <div className="note">
                   {WD[(start.getDay() + 6) % 7]}, <b>{start.getDate()} {MN[start.getMonth()]}</b>,{" "}
-                  {allDay ? "весь день" : `${hm(start)}–${hm(end)}`}
+                  {allDay
+                    ? "весь день"
+                    : sameDay(start, end)
+                      ? `${hm(start)}–${hm(end)}`
+                      : `${hm(start)} → ${end.getDate()} ${MN[end.getMonth()]}, ${hm(end)}`}
+                  {!badEnd && custom && days > 0 && (
+                    <> · {days + 1} {plural(days + 1, "день", "дня", "дней")}</>
+                  )}
+                  {badEnd && (
+                    <div className="clash"><b>Окончание раньше начала — поправьте</b></div>
+                  )}
                   {clashes.length > 0 && (
                     <div className="clash">
                       <b>Пересекается с {clashes.length}{" "}
@@ -351,12 +418,12 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
                       onChange={(e) => patch({ capOn: e.target.checked })} /><i />
                   </label>
                 </div>
-                {d.capOn && (
+                <Fold open={d.capOn}>
                   <div className="fld">
                     <div className="lbl">Всего мест</div>
                     <Plate text={String(d.capacity)} onOpen={() => setPicker("cap")} />
                   </div>
-                )}
+                </Fold>
                 <div className="tgl">
                   <div className="tx">
                     <b>Минимум участников</b>
@@ -367,18 +434,27 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
                       onChange={(e) => patch({ quorumOn: e.target.checked })} /><i />
                   </label>
                 </div>
-                {d.quorumOn && (
+                <Fold open={d.quorumOn}>
+                  <div className="fld">
+                    <div className="lbl">Нужно человек</div>
+                    <Plate text={String(d.quorum)} onOpen={() => setPicker("quorum")} />
+                  </div>
                   <div className="two">
                     <div className="fld">
-                      <div className="lbl">Нужно человек</div>
-                      <Plate text={String(d.quorum)} onOpen={() => setPicker("quorum")} />
+                      <div className="lbl">Решение до</div>
+                      <Plate text={dateLabel(d.qdate)} onOpen={() => setPicker("qdate")} />
                     </div>
                     <div className="fld">
-                      <div className="lbl">Решение в</div>
+                      <div className="lbl">Во сколько</div>
                       <Plate text={d.qtime} onOpen={() => setPicker("qtime")} />
                     </div>
                   </div>
-                )}
+                  {lateQuorum && (
+                    <div className="note warn2">
+                      Срок позже начала мероприятия — решение уже ничего не изменит
+                    </div>
+                  )}
+                </Fold>
                 <div className="tgl" style={{ borderTop: "1px solid var(--sep)" }}>
                   <div className="tx">
                     <b>Гости вне группы</b>
@@ -418,6 +494,12 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
           onPick={(v) => patch({ date: v })} onClose={() => setPicker(null)} />
         <TimePicker open={picker === "time"} value={d.time}
           onPick={(v) => patch({ time: v })} onClose={() => setPicker(null)} />
+        <DatePicker open={picker === "edate"} value={d.endDate}
+          onPick={(v) => patch({ endDate: v })} onClose={() => setPicker(null)} />
+        <TimePicker open={picker === "etime"} value={d.endTime}
+          onPick={(v) => patch({ endTime: v })} onClose={() => setPicker(null)} />
+        <DatePicker open={picker === "qdate"} value={d.qdate}
+          onPick={(v) => patch({ qdate: v })} onClose={() => setPicker(null)} />
         <TimePicker open={picker === "qtime"} value={d.qtime}
           onPick={(v) => patch({ qtime: v })} onClose={() => setPicker(null)} />
         <NumberPicker open={picker === "cap"} value={d.capacity} min={1} max={200}

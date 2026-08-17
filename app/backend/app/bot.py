@@ -22,6 +22,7 @@ from .db import SessionLocal
 from .models import Event, EventStatus, Participant, RsvpStatus, User
 from .services import chats
 from .services import events as svc
+from .services import live
 
 log = logging.getLogger("meeto.bot")
 dp = Dispatcher()
@@ -143,7 +144,9 @@ async def join_from_chat(call: CallbackQuery):
             await call.answer("Группа этого чата не найдена", show_alert=True)
             return
         group, added = result
+        gid = group.id
         await db.commit()
+        await live.group_changed(db, gid)
     await call.answer(
         f"Вы в группе «{group.title}»" if added else "Вы и так в группе"
     )
@@ -296,6 +299,8 @@ async def answer_from_chat(call: CallbackQuery):
         if was is RsvpStatus.going and now is not RsvpStatus.going:
             await svc.promote_waitlist(db, ev)
         await db.commit()
+        # ответ кнопкой из Telegram виден в открытом приложении сразу
+        await live.event_changed(db, ev)
 
         title = ev.title
         seats = f"{ev.going_count}" + (f"/{ev.capacity_max}" if ev.capacity_max else "")

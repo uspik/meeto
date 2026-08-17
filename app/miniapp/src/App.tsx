@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, login } from "./lib/api";
 import { MN, MNn, WD, addDays, sameDay, startOfDay } from "./lib/date";
 import { initTelegram, startParam } from "./lib/tg";
+import { connect, subscribe } from "./lib/live";
 import type { Event, Group, User } from "./lib/types";
 import { DayView } from "./views/DayView";
 import { EventSheet } from "./views/EventSheet";
@@ -35,9 +36,13 @@ export default function App() {
   const [events, setEvents] = useState<Event[]>([]);
   const [fatal, setFatal] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  // true, пока идёт первый запрос за данными этого диапазона: списки в это
-  // время показывают скелетоны, а не пустоту, в которую потом что-то падает
-  const [fetching, setFetching] = useState(true);
+  // Метка периода, за который лежат данные. Пока она не совпадает с текущим
+  // периодом, показывать по ним числа нельзя: именно так и получалось, что
+  // в фильтре на долю секунды мелькала единица от прошлой вкладки.
+  const [loadedKey, setLoadedKey] = useState("");
+  // скелетоны — только пока показывать вообще нечего; при смене периода
+  // держим прежние строки до прихода новых, иначе экран дёргается дважды
+  const [everLoaded, setEverLoaded] = useState(false);
 
   // Двухслойный переход между вкладками: уходящий экран остаётся снимком
   // разметки на 340 мс и растворяется, пока новый въезжает навстречу.
@@ -69,7 +74,12 @@ export default function App() {
     return [addDays(new Date(y, m, 1), -7), addDays(new Date(y, m + 1, 1), 7)];
   }, [view, period, cursor]);
 
+  const rangeKey = `${+range[0]}-${+range[1]}`;
+  // данные ещё не за тот период, который показываем
+  const stale = loadedKey !== rangeKey;
+
   const reload = useCallback(async () => {
+    const key = rangeKey;
     try {
       const [payload, gs, inv] = await Promise.all([
         api.calendar(range[0], range[1]),
@@ -79,13 +89,15 @@ export default function App() {
       setEvents(payload.events);
       setGroups(gs);
       setInvitations(inv);
+      // помечаем, за какой период данные: пока метка не совпала с текущим
+      // периодом, считать по ним нельзя — именно от этого прыгали счётчики
+      setLoadedKey(key);
+      setEverLoaded(true);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) setFatal("Сессия истекла — переоткройте приложение");
       else setFatal(e instanceof Error ? e.message : "не удалось загрузить данные");
-    } finally {
-      setFetching(false);
     }
-  }, [range]);
+  }, [range, rangeKey]);
 
   useEffect(() => {
     initTelegram();
@@ -107,6 +119,35 @@ export default function App() {
 
   useEffect(() => { if (user) void reload(); }, [user, reload]);
 
+  // Живые обновления. Соединение одно на приложение, экраны подписываются
+  // на разбор сообщений сами. reload держим в ссылке: иначе смена периода
+  // пересоздавала бы поток на каждый шаг календаря.
+  const reloadRef = useRef(reload);
+  reloadRef.current = reload;
+
+  useEffect(() => {
+    if (!user) return;
+    const stop = connect();
+    let pending = 0;
+    const off = subscribe((change) => {
+      // Пачку изменений (ответили сразу несколько человек) сводим в один
+      // запрос: перечитывать календарь на каждое сообщение незачем.
+      window.clearTimeout(pending);
+      pending = window.setTimeout(() => {
+        void reloadRef.current();
+        // открытая карточка мероприятия живёт отдельно от календаря
+        setOpenEvent((cur) => {
+          if (cur && (!change.event_id || change.event_id === cur.id)) {
+            void api.event(cur.id).then(upsert).catch(() => undefined);
+          }
+          return cur;
+        });
+      }, 120);
+    });
+    return () => { window.clearTimeout(pending); off(); stop(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
   const inScope = useCallback(
     (e: Event) => {
       const t = +new Date(e.starts_at);
@@ -115,14 +156,37 @@ export default function App() {
     [range],
   );
 
+  // Счётчики фильтров. Пока данные не за тот период, который показываем,
+  // считать по ним нельзя: получится число «из прошлой вкладки», которое
+  // через мгновение сменится правильным. Поэтому держим прежнее до конца
+  // загрузки — обычно оно и оказывается верным, и цифра просто не дёргается.
+  const shown = useRef({ all: 0, going: 0, away: 0 });
   const counts = useMemo(() => {
+    if (stale) return shown.current;
     const scoped = events.filter((e) => {
       if (groupFilter !== "all" && (e.group_id ?? "personal") !== groupFilter) return false;
       return view === "day" ? sameDay(new Date(e.starts_at), cursor) : inScope(e);
     });
     const going = scoped.filter((e) => e.my_status === "going" && e.status !== "cancelled").length;
     return { all: scoped.length, going, away: scoped.length - going };
-  }, [events, view, cursor, inScope, groupFilter]);
+  }, [events, view, cursor, inScope, groupFilter, stale]);
+
+  useEffect(() => { shown.current = counts; }, [counts]);
+
+  // Пришли ли на этот экран переключением вкладки. Считается один раз при
+  // смене экрана и дальше не меняется: если снять «тихий» режим на середине,
+  // отложенные анимации запустятся все разом — ровно то, от чего уходим.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const quiet = useMemo(() => (anim ? "quiet" : ""), [view]);
+
+  // Скелетоны показываем, только когда показывать действительно нечего:
+  // при переходе месяц → список периоды пересекаются, строки уже на экране,
+  // и подменять их скелетонами значит анимировать список дважды подряд.
+  const emptyForNow = useMemo(
+    () => events.filter((e) => inScope(e)).length === 0,
+    [events, inScope],
+  );
+  const skeletons = !everLoaded || (stale && emptyForNow);
 
   const visible = useMemo(
     () => events.filter((e) => {
@@ -274,11 +338,14 @@ export default function App() {
             dangerouslySetInnerHTML={{ __html: anim.html }}
           />
         )}
-        <div key={view} className={`view in ${anim ? `enter-${anim.dir > 0 ? "r" : "l"}` : ""}`}>
+        <div
+          key={view}
+          className={`view in ${anim ? `enter-${anim.dir > 0 ? "r" : "l"}` : ""} ${quiet}`}
+        >
           {view === "month" && (
             <MonthView
               cursor={cursor} selected={selected} events={visible} today={today}
-              loading={fetching}
+              loading={skeletons}
               onSelect={setSelected}
               onOpenDay={() => switchView("day")}
               onOpenEvent={setOpenEvent}
@@ -287,7 +354,7 @@ export default function App() {
           )}
           {view === "day" && (
             <DayView
-              cursor={cursor} events={visible} today={today} loading={fetching}
+              cursor={cursor} events={visible} today={today} loading={skeletons}
               onOpenEvent={setOpenEvent}
               onPickDay={() => switchView("month")}
               onCreate={() => setWizard(true)}
@@ -303,7 +370,7 @@ export default function App() {
           )}
           {view === "list" && (
             <ListView
-              events={visible.filter(inScope)} today={today} period={period} loading={fetching}
+              events={visible.filter(inScope)} today={today} period={period} loading={skeletons}
               onPeriod={setPeriod} onOpenEvent={setOpenEvent} onCreate={() => setWizard(true)}
             />
           )}

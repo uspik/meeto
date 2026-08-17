@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 
+import { Avatar } from "../components/Avatar";
 import { BottomBar } from "../components/BottomBar";
 import { PeoplePicker } from "../components/PeoplePicker";
 import { Select } from "../components/Select";
 import { api } from "../lib/api";
+import { subscribe } from "../lib/live";
 import { plural } from "../lib/date";
 import { copy, shareLink } from "../lib/share";
 import type { Group, GroupRole, Member } from "../lib/types";
@@ -63,6 +65,18 @@ export function GroupsView({ groups, invitations, meId, onChanged }: Props) {
     api.groupPending(openId).then(setPending).catch(() => setPending([]));
     // ссылка постоянная: показываем ту же, что и в прошлый раз
     api.invite(openId).then((r) => setInvite(r.url)).catch(() => setInvite(null));
+  }, [openId]);
+
+  // Состав меняется и снаружи: кто-то принял приглашение, кто-то нажал
+  // «Я в деле» в чате. Перечитываем молча, скелетоны тут уже не нужны.
+  useEffect(() => {
+    if (!openId) return;
+    return subscribe((change) => {
+      if (change.kind === "event") return;
+      if (change.group_id && change.group_id !== openId) return;
+      api.members(openId).then(setMembers).catch(() => undefined);
+      api.groupPending(openId).then(setPending).catch(() => undefined);
+    });
   }, [openId]);
 
   async function guard(fn: () => Promise<unknown>) {
@@ -255,9 +269,7 @@ export function GroupsView({ groups, invitations, meId, onChanged }: Props) {
 
         {joined.map((m, i) => (
           <div key={m.user.id} className="row rise" style={{ animationDelay: `${i * 40}ms` }}>
-            <span className="pav" style={{ backgroundImage: m.user.photo_url ? `url(${m.user.photo_url})` : undefined }}>
-              {m.user.photo_url ? "" : fullName(m.user).slice(0, 1).toUpperCase()}
-            </span>
+            <Avatar user={m.user} />
             <div className="meta">
               <div className="rt"><em>{fullName(m.user)}</em></div>
               <div className="rs">{ROLES[m.role] ?? m.role}</div>
@@ -301,12 +313,7 @@ export function GroupsView({ groups, invitations, meId, onChanged }: Props) {
             <div className="wsec">Приглашены, ждём ответа</div>
             {awaiting.map((m, i) => (
               <div key={m.user.id} className="wrow rise" style={{ animationDelay: `${i * 40}ms` }}>
-                <span
-                  className="pav"
-                  style={{ backgroundImage: m.user.photo_url ? `url(${m.user.photo_url})` : undefined }}
-                >
-                  {m.user.photo_url ? "" : fullName(m.user).slice(0, 1).toUpperCase()}
-                </span>
+                <Avatar user={m.user} />
                 <div className="wmeta">
                   <div className="wname"><em>{fullName(m.user)}</em></div>
                   <div className="wsub">приглашение отправлено</div>
@@ -336,15 +343,7 @@ export function GroupsView({ groups, invitations, meId, onChanged }: Props) {
             <div className="wsec">Исключены</div>
             {removed.map((m) => (
               <div key={m.user.id} className="wrow">
-                <span
-                  className="pav"
-                  style={{
-                    backgroundImage: m.user.photo_url ? `url(${m.user.photo_url})` : undefined,
-                    opacity: 0.55,
-                  }}
-                >
-                  {m.user.photo_url ? "" : fullName(m.user).slice(0, 1).toUpperCase()}
-                </span>
+                <Avatar user={m.user} dim />
                 <div className="wmeta">
                   <div className="wname"><em>{fullName(m.user)}</em></div>
                   <div className="wsub">можно позвать обратно</div>

@@ -4,10 +4,13 @@ import type {
   ParticipantsPayload, User,
 } from "./types";
 
-const BASE = import.meta.env.VITE_API_BASE ?? "/api/v1";
+export const BASE = import.meta.env.VITE_API_BASE ?? "/api/v1";
 
 let access: string | null = null;
 let refresh: string | null = null;
+
+/** Токен для потока изменений: EventSource умеет только строку запроса. */
+export const accessToken = (): string | null => access;
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -36,7 +39,7 @@ async function raw<T>(path: string, init: RequestInit = {}, retry = true): Promi
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 
-async function renew(): Promise<boolean> {
+export async function renew(): Promise<boolean> {
   try {
     const res = await fetch(`${BASE}/auth/refresh`, {
       method: "POST",

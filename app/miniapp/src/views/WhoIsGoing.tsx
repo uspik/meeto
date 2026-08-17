@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
+import { Avatar } from "../components/Avatar";
 import { Overlay } from "../components/Overlay";
 import { api } from "../lib/api";
+import { subscribe } from "../lib/live";
 import { hm, plural } from "../lib/date";
 import { useSheet } from "../lib/useSheet";
 import type { Event, Participant, RsvpStatus } from "../lib/types";
@@ -31,9 +33,6 @@ const ORDER: RsvpStatus[] = [
 const fullName = (u: { first_name: string; last_name?: string | null }) =>
   [u.first_name, u.last_name].filter(Boolean).join(" ");
 
-const initials = (u: { first_name: string; last_name?: string | null }) =>
-  fullName(u).slice(0, 1).toUpperCase() || "?";
-
 interface Props { event: Event; onClose(): void; onChanged?(): void }
 
 export function WhoIsGoing({ event, onClose, onChanged }: Props) {
@@ -62,12 +61,31 @@ export function WhoIsGoing({ event, onClose, onChanged }: Props) {
     }
   }
 
-  useEffect(() => {
-    api.participants(event.id)
-      .then((p) => { setRows(p.participants); setPending(p.pending); })
-      .catch((e) => setError(e instanceof Error ? e.message : "не удалось загрузить"))
-      .finally(() => setLoading(false));
+  const load = useCallback(async (quiet = false) => {
+    try {
+      const p = await api.participants(event.id);
+      setRows(p.participants);
+      setPending(p.pending);
+      setError(null);
+    } catch (e) {
+      if (!quiet) setError(e instanceof Error ? e.message : "не удалось загрузить");
+    } finally {
+      if (!quiet) setLoading(false);
+    }
   }, [event.id]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  // Чужой ответ виден сразу: пришло сообщение по шине — перечитываем список.
+  // Тихо, без «Загружаем…»: экран уже наполнен, и мигать ему незачем.
+  useEffect(
+    () => subscribe((change) => {
+      if (change.kind === "group") return;
+      if (change.event_id && change.event_id !== event.id) return;
+      void load(true);
+    }),
+    [event.id, load],
+  );
 
   const start = new Date(event.starts_at);
   const sorted = [...rows].sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status));
@@ -104,14 +122,7 @@ export function WhoIsGoing({ event, onClose, onChanged }: Props) {
             const at = arrival(p);
             return (
               <div key={p.user.id} className="wrow">
-                <span
-                  className="pav"
-                  style={{
-                    backgroundImage: p.user.photo_url ? `url(${p.user.photo_url})` : undefined,
-                  }}
-                >
-                  {p.user.photo_url ? "" : initials(p.user)}
-                </span>
+                <Avatar user={p.user} />
 
                 <div className="wmeta">
                   <div className="wname">
@@ -173,15 +184,7 @@ export function WhoIsGoing({ event, onClose, onChanged }: Props) {
               <div className="wsec">Убраны с мероприятия</div>
               {removed.map((p) => (
                 <div key={p.user.id} className="wrow">
-                  <span
-                    className="pav"
-                    style={{
-                      backgroundImage: p.user.photo_url ? `url(${p.user.photo_url})` : undefined,
-                      opacity: 0.55,
-                    }}
-                  >
-                    {p.user.photo_url ? "" : initials(p.user)}
-                  </span>
+                  <Avatar user={p.user} dim />
                   <div className="wmeta">
                     <div className="wname"><em>{fullName(p.user)}</em></div>
                     <div className="wsub">убран — можно позвать обратно</div>

@@ -3,6 +3,7 @@
 Запуск:  python -m tests.smoke   (из каталога backend)
 """
 import asyncio, hashlib, hmac, json, os, sys
+from uuid import UUID
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
@@ -592,6 +593,137 @@ async def main() -> None:
                     sel(Group).where(Group.tg_chat_id == CHAT)
                 )).scalars().all()
             check("на чат по-прежнему одна группа", len(copies) == 1, str(len(copies)))
+
+            print("\n=== мероприятие на несколько дней ===")
+            long_start = start + timedelta(days=7)
+            r = await c.post("/events", headers=H1, json={
+                "title": "Сплав", "starts_at": long_start.isoformat(),
+                "ends_at": (long_start + timedelta(days=2)).isoformat(),
+                "format": "offline", "place": "Река",
+            })
+            check("многодневное создаётся", r.status_code == 201, r.text[:200])
+            long_id = r.json()["id"]
+            check("окончание сохранилось целиком",
+                  r.json()["ends_at"][:10] == (long_start + timedelta(days=2)).date().isoformat(),
+                  r.json()["ends_at"])
+
+            # день посреди сплава: событие началось позавчера и ещё идёт
+            mid = long_start + timedelta(days=1)
+            r = await c.get("/calendar", headers=H1, params={
+                "from": mid.replace(hour=0, minute=0).isoformat(),
+                "to": (mid.replace(hour=0, minute=0) + timedelta(days=1)).isoformat(),
+            })
+            check("видно и в середине, а не только в первый день",
+                  long_id in {e["id"] for e in r.json()["events"]}, r.text[:200])
+
+            r = await c.post("/events", headers=H1, json={
+                "title": "Задом наперёд", "starts_at": long_start.isoformat(),
+                "ends_at": (long_start - timedelta(hours=1)).isoformat(), "format": "offline",
+            })
+            check("конец раньше начала не проходит", r.status_code == 400, r.text[:150])
+
+            print("\n=== срок кворума своей датой ===")
+            deadline = (start + timedelta(days=6)).replace(microsecond=0)
+            r = await c.patch(f"/events/{long_id}", headers=H1, json={
+                "title": "Сплав", "starts_at": long_start.isoformat(),
+                "ends_at": (long_start + timedelta(days=2)).isoformat(),
+                "format": "offline", "quorum_min": 3,
+                "quorum_deadline": deadline.isoformat(),
+            })
+            check("срок кворума можно поставить на другой день",
+                  r.status_code == 200 and r.json()["quorum_deadline"][:10] == deadline.date().isoformat(),
+                  r.text[:250])
+
+            print("\n=== живые обновления ===")
+            from app.services import bus, live
+            from app.models import Event as EventModel
+
+            r = await c.get("/stream")
+            check("поток без токена не открывается", r.status_code == 401, str(r.status_code))
+            r = await c.get("/stream", params={"token": "не-токен"})
+            check("и с чужим токеном тоже", r.status_code == 401, str(r.status_code))
+
+            async with SL() as db:
+                ev_obj = await db.get(EventModel, UUID(sid))
+                seen = await live.watchers(db, ev_obj)
+            check("адресаты обновления — участники и состав группы",
+                  UUID(anya["user"]["id"]) in seen and UUID(borya["user"]["id"]) in seen,
+                  str(len(seen)))
+
+            # Redis в тестах не поднят: шина обязана молча деградировать,
+            # иначе падало бы любое действие — от ответа до отмены
+            await bus.publish("event", users=[UUID(anya["user"]["id"])], event_id=sid)
+            check("без Redis шина не роняет запрос", True)
+
+            # Дальше — поток целиком, с подменой Redis на очередь в памяти.
+            # Проверяем то, ради чего всё затевалось: сообщение доходит до
+            # своего адресата и не доходит до чужого.
+            class FakeChannel:
+                def __init__(self):
+                    self.q: asyncio.Queue = asyncio.Queue()
+
+                async def subscribe(self, _name):
+                    pass
+
+                async def get_message(self, ignore_subscribe_messages=True, timeout=1.0):
+                    try:
+                        return {"data": await asyncio.wait_for(self.q.get(), timeout)}
+                    except asyncio.TimeoutError:
+                        return None
+
+                async def aclose(self):
+                    pass
+
+            class FakeRedis:
+                def __init__(self):
+                    self.channels: list[FakeChannel] = []
+
+                def pubsub(self):
+                    ch = FakeChannel()
+                    self.channels.append(ch)
+                    return ch
+
+                async def publish(self, _channel, message):
+                    for ch in self.channels:
+                        await ch.q.put(message)
+
+            bus._client = FakeRedis()
+
+            # httpx собирает ответ целиком и до бесконечного потока не доходит,
+            # поэтому дёргаем приложение как ASGI напрямую
+            frames: list = []
+
+            async def never():
+                await asyncio.sleep(3600)
+                return {"type": "http.disconnect"}
+
+            scope = {
+                "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+                "method": "GET", "scheme": "http", "path": "/api/v1/stream",
+                "raw_path": b"/api/v1/stream",
+                "query_string": f"token={anya['access']}".encode(),
+                "root_path": "", "headers": [(b"host", b"t")],
+                "client": ("127.0.0.1", 1), "server": ("t", 80),
+            }
+            async def collect(frame):
+                frames.append(frame)
+
+            listening = asyncio.create_task(app(scope, never, collect))
+            await asyncio.sleep(0.4)
+            await bus.publish("event", users=[UUID(borya["user"]["id"])], event_id="чужое")
+            await bus.publish("event", users=[UUID(anya["user"]["id"])], event_id=sid)
+            await asyncio.sleep(0.8)
+            listening.cancel()
+
+            head = next((f for f in frames if f["type"] == "http.response.start"), {})
+            body = b"".join(f.get("body", b"") for f in frames
+                            if f["type"] == "http.response.body").decode()
+            check("поток открылся", head.get("status") == 200, str(head.get("status")))
+            check("браузеру сказали, через сколько переподключаться",
+                  "retry:" in body, body[:80])
+            check("своё изменение пришло в поток", f'"event_id": "{sid}"' in body, body[:200])
+            check("чужое в поток не попало", "чужое" not in body, body[:200])
+            bus._client = None
 
             print("\n=== бот в чате: разбор обновлений Telegram ===")
             # Проверяем не сервис, а проводку: что обработчики вообще

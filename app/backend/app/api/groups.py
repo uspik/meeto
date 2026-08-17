@@ -14,6 +14,7 @@ from ..models import (
 )
 from ..schemas import GroupIn, GroupOut, InviteOut, InviteResult, MemberOut, MembersIn
 from ..services import invites as inv
+from ..services import live
 from ..services.notify import enqueue
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -71,6 +72,7 @@ async def accept_invitation(
                   {"title": group.title, "who": me.display_name},
                   dedup_key=f"joined:{group_id}:{me.id}")
     await db.commit()
+    await live.group_changed(db, group_id)
     return await _out(db, group, me)
 
 
@@ -81,6 +83,7 @@ async def decline_invitation(
     _, member = await require_group(db, group_id, me, allow_pending=True)
     await db.delete(member)
     await db.commit()
+    await live.group_changed(db, group_id, extra={me.id})
 
 
 @router.post("", response_model=GroupOut, status_code=201)
@@ -170,6 +173,7 @@ async def add_members(
     await inv.remember_contact(db, me.id, ids)
     pending = await inv.remember(db, missing, by=me.id, group_id=group_id, role=body.role)
     await db.commit()
+    await live.group_changed(db, group_id, extra=set(ids))
     return InviteResult(added=len(added), pending=pending)
 
 
@@ -193,6 +197,7 @@ async def set_role(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "только владелец меняет админов")
     target.role = role
     await db.commit()
+    await live.group_changed(db, group_id)
     return target
 
 
@@ -224,6 +229,7 @@ async def kick(
         for keeper in keepers:
             await inv.remember_contact(db, keeper, [user_id])
     await db.commit()
+    await live.group_changed(db, group_id, extra={user_id})
 
 
 @router.post("/{group_id}/transfer-ownership", status_code=204)

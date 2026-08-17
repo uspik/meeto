@@ -17,6 +17,7 @@ from sqlalchemy import func, select
 from .config import settings
 from .db import SessionLocal
 from .models import Event, EventStatus, Outbox, Participant, RsvpStatus, User
+from .services import live
 from .services.notify import actions_for, announce, enqueue, render
 
 log = logging.getLogger("meeto.worker")
@@ -158,6 +159,10 @@ async def resolve_quorum() -> None:
                         await enqueue(db, pt.user_id, "quorum.failed", payload,
                                       dedup_key=f"quorum-fail:{ev.id}:{pt.user_id}")
         await db.commit()
+        # статус мероприятия поменялся сам, без действий человека —
+        # открытые вкладки должны это увидеть
+        for ev in evs:
+            await live.event_changed(db, ev)
 
 
 async def close_past() -> None:

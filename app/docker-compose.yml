@@ -32,7 +32,9 @@ services:
     build: ./backend
     image: meeto-backend:local
     env_file: .env
-    depends_on: [api]
+    # redis — общая шина живых обновлений: ответ кнопкой в Telegram
+    # должен долетать до открытого приложения
+    depends_on: [api, redis]
     command: python -m app.bot
     restart: unless-stopped
 
@@ -42,6 +44,7 @@ services:
     env_file: .env
     depends_on:
       db: {condition: service_healthy}
+      redis: {condition: service_started}
     command: python -m app.worker
     restart: unless-stopped
 

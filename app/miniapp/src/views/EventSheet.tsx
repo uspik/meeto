@@ -4,7 +4,7 @@ import { Overlay } from "../components/Overlay";
 import { useSheet } from "../lib/useSheet";
 import { Icon } from "../components/Icon";
 import { StatusChip } from "../components/StatusChip";
-import { MN, hm, p2 } from "../lib/date";
+import { MN, hm, p2, timeRange } from "../lib/date";
 import { api } from "../lib/api";
 import { haptic } from "../lib/tg";
 import type { Event, RsvpStatus } from "../lib/types";
@@ -112,8 +112,7 @@ export function EventSheet({ event, onClose, onChanged, onEdit, onInvite, onWho 
           <div className="kv">
             <span>Когда</span>
             <div>
-              {start.getDate()} {MN[start.getMonth()]}, {hm(start)}
-              {event.ends_at ? `–${hm(new Date(event.ends_at))}` : ""}
+              {start.getDate()} {MN[start.getMonth()]}, {timeRange(event.starts_at, event.ends_at)}
             </div>
           </div>
           <div className="kv"><span>Формат</span><div>{FORMAT[event.format]}</div></div>
