@@ -58,16 +58,9 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
   const [guests, setGuests] = useState<User[]>([]);
   const [guestHandles, setGuestHandles] = useState<string[]>([]);
   const [people, setPeople] = useState(false);
-  // Подсказка по умолчанию: вечер, а если вечер уже прошёл — ближайшие
-  // полчаса вперёд. Предлагать время, которое нельзя выбрать, незачем.
-  function firstTime(when: Date): string {
-    const now = new Date();
-    if (!sameDay(when, now) || hm(now) < "19:00") return "19:00";
-    const soon = new Date(now.getTime() + 30 * 60_000);
-    soon.setMinutes(soon.getMinutes() < 30 ? 30 : 0, 0, 0);
-    if (soon.getMinutes() === 0) soon.setHours(soon.getHours() + 1);
-    return hm(soon);
-  }
+  // Пока срок кворума не трогали руками, он едет за началом мероприятия:
+  // поменяли время — поменялся и срок, отдельно поправлять не нужно.
+  const [qTouched, setQTouched] = useState(Boolean(edit?.quorum_deadline));
 
   const [d, setD] = useState<Draft>(() => {
     const base = day < startOfDay(new Date()) ? new Date() : day;
@@ -77,17 +70,15 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
         groupId: groups[0]?.id ?? null,
         // в календаре можно стоять на прошедшем дне — создаём всё равно
         // с сегодняшнего, назад мероприятия не ставятся
-        date: dstr(base), time: firstTime(base), dur: 120,
+        // время по умолчанию — текущее: от него отсчитывать привычнее,
+        // чем от абстрактного вечера, и в прошлое оно точно не попадёт
+        date: dstr(base), time: hm(new Date()), dur: 120,
         endMode: "dur", endDate: dstr(base), endTime: "21:00",
         format: "offline", place: "", url: "",
         capOn: false, capacity: 12, quorumOn: false, quorum: 6,
-        // срок кворума по умолчанию — за сутки до начала: остаётся день,
-        // чтобы отменить или перепланировать. Но не раньше сегодняшнего дня:
-        // назад срок не ставится.
-        qdate: dstr(addDays(base, -1) < startOfDay(new Date())
-          ? new Date()
-          : addDays(base, -1)),
-        qtime: "20:00",
+        // срок кворума по умолчанию — начало мероприятия: позже него он
+        // всё равно не имеет смысла, а раньше человек сдвинет сам
+        qdate: dstr(base), qtime: hm(new Date()),
       };
     }
     const s0 = new Date(edit.starts_at);
@@ -139,7 +130,9 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
     patch({ endMode: "custom", endDate: dstr(e), endTime: hm(e) });
   }
 
-  const qAt = at(d.qdate, d.qtime);
+  const qDate = qTouched ? d.qdate : d.date;
+  const qTime = qTouched ? d.qtime : (allDay ? "23:59" : d.time);
+  const qAt = at(qDate, qTime);
   const lateQuorum = d.quorumOn && +qAt > +start;
 
   /* ---- границы выбора: назад мероприятия не ставятся ---- */
@@ -195,7 +188,7 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
     setBusy(true);
     setError(null);
     try {
-      const deadline = at(d.qdate, d.qtime);
+      const deadline = at(qDate, qTime);
 
       const payload = {
         title: d.title.trim(),
@@ -283,7 +276,7 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
                 </div>
                 <div className="fld">
                   <div className="lbl">Название</div>
-                  <input className="inp" value={d.title} placeholder="Волейбол по средам"
+                  <input className="inp" value={d.title} placeholder="Ваше мероприятие"
                     onChange={(e) => patch({ title: e.target.value })} />
                 </div>
                 <div className="fld" style={{ position: "relative" }}>
@@ -477,11 +470,11 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
                   <div className="two">
                     <div className="fld">
                       <div className="lbl">Решение до</div>
-                      <Plate text={dateLabel(d.qdate)} onOpen={() => setPicker("qdate")} />
+                      <Plate text={dateLabel(qDate)} onOpen={() => setPicker("qdate")} />
                     </div>
                     <div className="fld">
                       <div className="lbl">Во сколько</div>
-                      <Plate text={d.qtime} onOpen={() => setPicker("qtime")} />
+                      <Plate text={qTime} onOpen={() => setPicker("qtime")} />
                     </div>
                   </div>
                   {lateQuorum && (
@@ -541,12 +534,13 @@ export function Wizard({ groups, day, existing, edit, onClose, onCreated }: Prop
         <TimePicker open={picker === "etime"} value={d.endTime}
           min={d.endDate === d.date ? d.time : undefined}
           onPick={(v) => patch({ endTime: v })} onClose={() => setPicker(null)} />
-        <DatePicker open={picker === "qdate"} value={d.qdate} min={qFloor} max={qCeil}
-          onPick={(v) => patch({ qdate: v })} onClose={() => setPicker(null)} />
-        <TimePicker open={picker === "qtime"} value={d.qtime}
-          min={d.qdate === todayStr ? nowHm : undefined}
-          max={d.qdate === d.date && !allDay ? d.time : undefined}
-          onPick={(v) => patch({ qtime: v })} onClose={() => setPicker(null)} />
+        <DatePicker open={picker === "qdate"} value={qDate} min={qFloor} max={qCeil}
+          onPick={(v) => { setQTouched(true); patch({ qdate: v, qtime: qTime }); }}
+          onClose={() => setPicker(null)} />
+        <TimePicker open={picker === "qtime"} value={qTime}
+          min={qDate === todayStr ? nowHm : undefined}
+          onPick={(v) => { setQTouched(true); patch({ qdate: qDate, qtime: v }); }}
+          onClose={() => setPicker(null)} />
         <NumberPicker open={picker === "cap"} value={d.capacity} min={1} max={200}
           title="Всего мест" onPick={(v) => patch({ capacity: v })} onClose={() => setPicker(null)} />
         <NumberPicker open={picker === "quorum"} value={d.quorum} min={1} max={200}

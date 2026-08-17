@@ -34,13 +34,22 @@ export function useEscape(active: boolean, onEscape: () => void): void {
   }, [active]);
 }
 
-/** Задерживает размонтирование шторки, чтобы успела проиграть анимация ухода. */
+/**
+ * Задерживает размонтирование шторки, чтобы успела проиграть анимация ухода.
+ *
+ * `close(then)` — уйти и сделать что-то другое вместо обычного закрытия:
+ * так карточка мероприятия успевает уехать вниз, прежде чем на её месте
+ * появится «Кто идёт». Без этого она пропадала рывком.
+ */
 export function useSheet(onClose: () => void, ms = 260) {
   const [closing, setClosing] = useState(false);
 
-  const close = useCallback(() => {
+  // Аргумент нарочно нестрогий: close вешают и прямо на onClick, а туда
+  // React передаёт событие — функцией оно не является, и мы просто закроем.
+  const close = useCallback((then?: unknown) => {
+    const done = typeof then === "function" ? (then as () => void) : onClose;
     setClosing((was) => {
-      if (!was) window.setTimeout(onClose, ms);
+      if (!was) window.setTimeout(done, ms);
       return true;
     });
   }, [onClose, ms]);

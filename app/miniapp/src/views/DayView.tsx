@@ -50,7 +50,11 @@ export function DayView(p: Props) {
             </div>
           )}
         </div>
-        <BottomBar label="Выбрать день" onMain={p.onPickDay} onCreate={p.onCreate} />
+        <BottomBar
+          label="Выбрать день" onMain={p.onPickDay} onCreate={p.onCreate}
+          createOff={p.cursor < p.today}
+          offHint="Этот день уже прошёл"
+        />
       </>
     );
   }
@@ -176,7 +180,11 @@ export function DayView(p: Props) {
           );
         })}
       </div>
-      <BottomBar label="Выбрать день" onMain={p.onPickDay} onCreate={p.onCreate} />
+      <BottomBar
+        label="Выбрать день" onMain={p.onPickDay} onCreate={p.onCreate}
+        createOff={p.cursor < p.today}
+        offHint="Этот день уже прошёл"
+      />
     </>
   );
 }

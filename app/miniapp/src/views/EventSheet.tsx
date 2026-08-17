@@ -165,7 +165,7 @@ export function EventSheet({ event, onClose, onChanged, onEdit, onInvite, onWho 
         </div>
 
         <div className="sh-sec">
-          <button className="wide" onClick={() => onWho(event)}>
+          <button className="wide" onClick={() => close(() => onWho(event))}>
             <span>Кто идёт</span>
             <b>{event.going_count}</b>
           </button>
@@ -212,8 +212,12 @@ export function EventSheet({ event, onClose, onChanged, onEdit, onInvite, onWho 
 
         {event.can_edit && (
           <div className="rsvp" style={{ paddingTop: 8 }}>
-            <button className="maybe" onClick={() => onEdit(event)}>Редактировать</button>
-            <button className="maybe" onClick={() => onInvite(event)}>Позвать людей</button>
+            <button className="maybe" onClick={() => close(() => onEdit(event))}>
+              Редактировать
+            </button>
+            <button className="maybe" onClick={() => close(() => onInvite(event))}>
+              Позвать людей
+            </button>
           </div>
         )}
 

@@ -402,7 +402,14 @@ export default function App() {
       {whoFor && (
         <WhoIsGoing
           event={whoFor}
-          onClose={() => setWhoFor(null)}
+          // «Кто идёт» открывался поверх карточки, из которой пришли, —
+          // закрываем его и возвращаем карточку на место, уже со свежими
+          // данными: пока смотрели список, ответы могли поменяться
+          onClose={() => {
+            const back = events.find((e) => e.id === whoFor.id) ?? whoFor;
+            setWhoFor(null);
+            setOpenEvent(back);
+          }}
           onChanged={() => void reload()}
         />
       )}

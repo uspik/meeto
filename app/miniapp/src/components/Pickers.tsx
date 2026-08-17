@@ -110,10 +110,15 @@ function Wheel({ count, index, label, onIndex }: WheelProps) {
   // Значение уходит наверх после остановки, а подсветка двигается напрямую
   // через DOM. Раньше каждое событие прокрутки перерисовывало весь шаг визарда
   // — на длинной прокрутке главный поток захлёбывался и барабан подвисал.
+  //
+  // При исчезновении отдаём последнее положение той функцией, что была при
+  // появлении: если набор значений успел смениться, новая посчитала бы по
+  // старому индексу чужое значение и барабан бы «прыгнул».
+  const atMount = useRef(onIndex).current;
   useEffect(() => () => {
     window.clearTimeout(timer.current);
-    commit.current(cur.current);
-  }, []);
+    atMount(cur.current);
+  }, [atMount]);
 
   function highlight(i: number) {
     const kids = ref.current?.children;
@@ -226,22 +231,21 @@ const clock = (total: number) => `${p2(Math.floor(total / 60))}:${p2(total % 60)
 /**
  * Барабан времени с границами.
  *
- * Недоступное время не гасим, а просто не показываем: в барабане серые
- * позиции всё равно проезжают под пальцем и сбивают прицел. Значение на
- * выходе дополнительно зажимаем — барабан отдаёт последнее положение при
- * закрытии, и оно могло относиться к прежнему набору минут.
+ * Обрезаем только часы. Минуты остаются полными — и вот почему: их набор
+ * зависел бы от выбранного часа, барабан приходилось бы пересоздавать, а он
+ * при исчезновении отдаёт наверх своё последнее положение. Получалось, что
+ * смена часа возвращала прежнее значение: барабан «сам по себе ездил», а на
+ * крайнем часе в нём оставалась одна позиция и минуты вообще не выбирались.
+ * Теперь минуты крутятся всегда, а выход зажимается по границам.
  */
 export function TimePicker({ open, value, onPick, onClose, min, max }: TimeProps) {
   const lo = min ? mins(min) : 0;
   const hi = max ? mins(max) : 24 * 60 - 1;
-  const now = Math.min(Math.max(mins(value), lo), hi);
-  const [h, m] = [Math.floor(now / 60), now % 60];
+  const at = Math.min(Math.max(mins(value), lo), hi);
+  const [h, m] = [Math.floor(at / 60), at % 60];
 
   const hFrom = Math.floor(lo / 60);
   const hTo = Math.floor(hi / 60);
-  // минуты ограничены только на крайних часах: внутри диапазона они все
-  const mFrom = h === hFrom ? lo % 60 : 0;
-  const mTo = h === hTo ? hi % 60 : 59;
 
   const pick = (total: number) => onPick(clock(Math.min(Math.max(total, lo), hi)));
 
@@ -257,13 +261,7 @@ export function TimePicker({ open, value, onPick, onClose, min, max }: TimeProps
           onIndex={(i) => pick((i + hFrom) * 60 + m)}
         />
         <span className="wsep">:</span>
-        <Wheel
-          key={`${mFrom}-${mTo}`}
-          count={mTo - mFrom + 1}
-          index={Math.max(0, m - mFrom)}
-          label={(i) => p2(i + mFrom)}
-          onIndex={(i) => pick(h * 60 + i + mFrom)}
-        />
+        <Wheel count={60} index={m} label={p2} onIndex={(i) => pick(h * 60 + i)} />
       </div>
       <button className="pop-done" onClick={onClose}>Готово</button>
     </Sheet>

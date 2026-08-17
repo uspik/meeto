@@ -108,7 +108,11 @@ export function MonthView(p: Props) {
           )}
         </div>
       </div>
-      <BottomBar label="Открыть день" onMain={p.onOpenDay} onCreate={p.onCreate} />
+      <BottomBar
+        label="Открыть день" onMain={p.onOpenDay} onCreate={p.onCreate}
+        createOff={p.selected < p.today}
+        offHint="Этот день уже прошёл"
+      />
     </>
   );
 }

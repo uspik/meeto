@@ -261,8 +261,13 @@ body.tg-fullscreen .hdr-top{padding-right:calc(16px + 92px)}
 .bottombar{flex:0 0 auto;display:flex;gap:8px;padding:9px 16px 14px;background:var(--bg);
   border-top:1px solid var(--sep)}
 .bottombar .tb{flex:1;height:46px;border-radius:14px;font-size:14px;background:var(--bg2)}
+/* Прошедший день: кнопка гаснет плавно и перестаёт нажиматься — так видно,
+   что дело в выбранной дате, а не в том, что интерфейс завис. */
+.bottombar .plus.off{background:var(--bg2);color:var(--hint);box-shadow:none;cursor:default}
+.bottombar .plus.off:active{transform:none}
 .bottombar .plus{width:56px;height:46px;border:none;border-radius:14px;background:var(--link);
-  color:#fff;font-size:24px;cursor:pointer;transition:transform .15s;flex:0 0 auto}
+  color:#fff;font-size:24px;cursor:pointer;flex:0 0 auto;
+  transition:transform .15s,background .28s ease,color .28s ease,box-shadow .28s ease}
 .bottombar .plus:active{transform:scale(.93)}
 
 /* ================= list ================= */
